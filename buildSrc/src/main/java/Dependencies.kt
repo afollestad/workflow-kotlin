@@ -4,8 +4,8 @@ import java.util.Locale.US
 import kotlin.reflect.full.declaredMembers
 
 object Versions {
-  const val coroutines = "1.3.7"
-  const val kotlin = "1.3.72"
+  const val coroutines = "1.3.7-1.4-M3"
+  const val kotlin = "1.4-M3"
   const val targetSdk = 29
 }
 
@@ -71,7 +71,8 @@ object Dependencies {
 
     object Serialization {
       const val gradlePlugin = "org.jetbrains.kotlin:kotlin-serialization:${Versions.kotlin}"
-      const val runtime = "org.jetbrains.kotlinx:kotlinx-serialization-runtime:0.20.0"
+      const val runtime =
+        "org.jetbrains.kotlinx:kotlinx-serialization-runtime:0.20.0-1.4-M2"
       const val kaml = "com.charleskorn.kaml:kaml:0.16.1"
     }
 

@@ -66,7 +66,7 @@ fun BufferedSource.parseBoard(metadata: BoardMetadata = parseBoardMetadata()): B
   val height = rows.size
   val width = rows.asSequence()
       .map { it.size }
-      .max()!!
+      .maxOrNull()!!
 
   // Pad short rows.
   rows = rows.map { row ->
@@ -102,7 +102,7 @@ private fun BufferedSource.readHeader(): String? = buildString {
   while (true) {
     val line = readUtf8Line() ?: throw IllegalArgumentException("Expected --- but found EOF.")
     if (line == YAML_DELIMITER) return@buildString
-    appendln(line)
+    appendLine(line)
   }
 }
 
