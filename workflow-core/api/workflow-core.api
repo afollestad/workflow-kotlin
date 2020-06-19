@@ -242,6 +242,7 @@ public final class com/squareup/workflow/WorkflowIdentifierKt {
 }
 
 public final class com/squareup/workflow/WorkflowKt {
+	public static final fun mapOutput (Lcom/squareup/workflow/Workflow;Lkotlin/jvm/functions/Function1;)Lcom/squareup/workflow/Workflow;
 	public static final fun mapRendering (Lcom/squareup/workflow/Workflow;Lkotlin/jvm/functions/Function1;)Lcom/squareup/workflow/Workflow;
 }
 
