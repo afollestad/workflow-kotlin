@@ -107,21 +107,6 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     return this
   }
 
-  override fun expectWorker(
-    matchesWhen: (otherWorker: Worker<*>) -> Boolean,
-    key: String,
-    output: WorkflowOutput<Any?>?,
-    description: String
-  ): RenderTester<PropsT, StateT, OutputT, RenderingT> {
-    val expectedWorker = ExpectedWorker(matchesWhen, key, output, description)
-    if (output != null) {
-      checkNoOutputs(expectedWorker)
-      childWillEmitOutput = true
-    }
-    expectations += expectedWorker
-    return this
-  }
-
   override fun expectSideEffect(key: String): RenderTester<PropsT, StateT, OutputT, RenderingT> {
     if (expectations.any { it is ExpectedSideEffect && it.key == key }) {
       throw AssertionError("Already expecting side effect with key \"$key\".")
@@ -206,28 +191,6 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
 
     @Suppress("UNCHECKED_CAST")
     return expected.rendering as ChildRenderingT
-  }
-
-  override fun <T> runningWorker(
-    worker: Worker<T>,
-    key: String,
-    handler: (T) -> WorkflowAction<PropsT, StateT, OutputT>
-  ) {
-    val expected = consumeExpectedWorker<ExpectedWorker<*>>(
-        predicate = { it.matchesWhen(worker) && it.key == key },
-        description = {
-          "worker $worker" +
-              key.takeUnless { it.isEmpty() }
-                  ?.let { " with key \"$it\"" }
-                  .orEmpty()
-        }
-    )
-
-    if (expected?.output != null) {
-      check(processedAction == null)
-      @Suppress("UNCHECKED_CAST")
-      processedAction = handler(expected.output.value as T)
-    }
   }
 
   override fun runningSideEffect(

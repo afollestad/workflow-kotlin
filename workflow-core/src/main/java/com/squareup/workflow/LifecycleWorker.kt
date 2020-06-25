@@ -21,6 +21,7 @@ package com.squareup.workflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.reflect.KType
 
 /**
  * [Worker] that performs some action when the worker is started and/or stopped.
@@ -29,6 +30,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * worker, or when the parent workflow is itself torn down.
  */
 abstract class LifecycleWorker : Worker<Nothing> {
+
+  final override val outputType: KType? get() = null
 
   /**
    * Called when this worker is started. It is executed concurrently with the parent workflow –
@@ -73,6 +76,5 @@ abstract class LifecycleWorker : Worker<Nothing> {
   /**
    * Equates [LifecycleWorker]s that have the same concrete class.
    */
-  override fun doesSameWorkAs(otherWorker: Worker<*>): Boolean =
-    this::class == otherWorker::class
+  override fun doesSameWorkAs(otherWorker: Worker<*>): Boolean = true
 }

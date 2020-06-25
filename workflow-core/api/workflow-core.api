@@ -22,6 +22,7 @@ public final class com/squareup/workflow/ImpostorWorkflow$DefaultImpls {
 public abstract class com/squareup/workflow/LifecycleWorker : com/squareup/workflow/Worker {
 	public fun <init> ()V
 	public fun doesSameWorkAs (Lcom/squareup/workflow/Worker;)Z
+	public final fun getOutputType ()Lkotlin/reflect/KType;
 	public fun onStarted ()V
 	public fun onStopped ()V
 	public final fun run ()Lkotlinx/coroutines/flow/Flow;
@@ -33,14 +34,12 @@ public abstract interface class com/squareup/workflow/RenderContext {
 	public abstract fun onEvent (Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function1;
 	public abstract fun renderChild (Lcom/squareup/workflow/Workflow;Ljava/lang/Object;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
 	public abstract fun runningSideEffect (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
-	public abstract fun runningWorker (Lcom/squareup/workflow/Worker;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
 }
 
 public final class com/squareup/workflow/RenderContext$DefaultImpls {
 	public static fun makeActionSink (Lcom/squareup/workflow/RenderContext;)Lcom/squareup/workflow/Sink;
 	public static fun onEvent (Lcom/squareup/workflow/RenderContext;Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function1;
 	public static synthetic fun renderChild$default (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Workflow;Ljava/lang/Object;Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun runningWorker$default (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Worker;Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
 }
 
 public abstract interface class com/squareup/workflow/Sink {
@@ -108,6 +107,7 @@ public abstract class com/squareup/workflow/StatelessWorkflow : com/squareup/wor
 public final class com/squareup/workflow/TypedWorker : com/squareup/workflow/Worker {
 	public fun <init> (Lkotlin/reflect/KType;Lkotlinx/coroutines/flow/Flow;)V
 	public fun doesSameWorkAs (Lcom/squareup/workflow/Worker;)Z
+	public fun getOutputType ()Lkotlin/reflect/KType;
 	public fun run ()Lkotlinx/coroutines/flow/Flow;
 	public fun toString ()Ljava/lang/String;
 }
@@ -115,6 +115,7 @@ public final class com/squareup/workflow/TypedWorker : com/squareup/workflow/Wor
 public abstract interface class com/squareup/workflow/Worker {
 	public static final field Companion Lcom/squareup/workflow/Worker$Companion;
 	public abstract fun doesSameWorkAs (Lcom/squareup/workflow/Worker;)Z
+	public abstract fun getOutputType ()Lkotlin/reflect/KType;
 	public abstract fun run ()Lkotlinx/coroutines/flow/Flow;
 }
 
@@ -127,6 +128,7 @@ public final class com/squareup/workflow/Worker$Companion {
 
 public final class com/squareup/workflow/Worker$DefaultImpls {
 	public static fun doesSameWorkAs (Lcom/squareup/workflow/Worker;Lcom/squareup/workflow/Worker;)Z
+	public static fun getOutputType (Lcom/squareup/workflow/Worker;)Lkotlin/reflect/KType;
 }
 
 public abstract interface class com/squareup/workflow/Workflow {
@@ -217,8 +219,6 @@ public final class com/squareup/workflow/Workflows {
 	public static final fun invoke (Lcom/squareup/workflow/EventHandler;)V
 	public static final fun makeEventSink (Lcom/squareup/workflow/RenderContext;Lkotlin/jvm/functions/Function2;)Lcom/squareup/workflow/Sink;
 	public static final fun mapRendering (Lcom/squareup/workflow/Workflow;Lkotlin/jvm/functions/Function1;)Lcom/squareup/workflow/Workflow;
-	public static final fun onWorkerOutput (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Worker;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
-	public static synthetic fun onWorkerOutput$default (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Worker;Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
 	public static final fun renderChild (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Workflow;Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;
 	public static final fun renderChild (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Workflow;Ljava/lang/String;)Ljava/lang/Object;
 	public static final fun renderChild (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Workflow;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
@@ -227,6 +227,7 @@ public final class com/squareup/workflow/Workflows {
 	public static synthetic fun renderChild$default (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Workflow;Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun rendering (Lcom/squareup/workflow/Workflow$Companion;Ljava/lang/Object;)Lcom/squareup/workflow/Workflow;
 	public static final fun runningWorker (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Worker;Ljava/lang/String;)V
+	public static final fun runningWorker (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Worker;Lkotlin/reflect/KType;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
 	public static synthetic fun runningWorker$default (Lcom/squareup/workflow/RenderContext;Lcom/squareup/workflow/Worker;Ljava/lang/String;ILjava/lang/Object;)V
 	public static final fun sendAndAwaitApplication (Lcom/squareup/workflow/Sink;Lcom/squareup/workflow/WorkflowAction;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun stateful (Lcom/squareup/workflow/Workflow$Companion;Ljava/lang/Object;Lkotlin/jvm/functions/Function2;)Lcom/squareup/workflow/StatefulWorkflow;

@@ -20,7 +20,6 @@ package com.squareup.workflow
 import com.squareup.workflow.WorkflowAction.Companion.noAction
 import com.squareup.workflow.testing.WorkerSink
 import com.squareup.workflow.testing.launchForTestingFromStartWith
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers.Unconfined
 import kotlinx.coroutines.Job
@@ -66,7 +65,7 @@ class WorkerCompositionIntegrationTest {
       }
     }
     val workflow = Workflow.stateless<Boolean, Nothing, Unit> { props ->
-      if (props) runningWorker(worker) { noAction() }
+      if (props) runningWorker(worker)
     }
 
     workflow.launchForTestingFromStartWith(true) {
@@ -88,7 +87,7 @@ class WorkerCompositionIntegrationTest {
         stops++
       }
     }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> { runningWorker(worker) { noAction() } }
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> { runningWorker(worker) }
 
     workflow.launchForTestingFromStartWith {
       assertEquals(1, starts)
@@ -117,7 +116,7 @@ class WorkerCompositionIntegrationTest {
       }
     }
     val workflow = Workflow.stateless<Boolean, Nothing, Unit> { props ->
-      if (props) runningWorker(worker) { noAction() }
+      if (props) runningWorker(worker)
     }
 
     workflow.launchForTestingFromStartWith(false) {
@@ -154,19 +153,13 @@ class WorkerCompositionIntegrationTest {
   }
 
   @Test fun `runningWorker gets error`() {
-    val channel = Channel<String>()
-    val workflow = Workflow.stateless<Unit, String, Unit> {
-      runningWorker(
-          channel.consumeAsFlow()
-              .asWorker()
-      ) { action { setOutput(it) } }
+    val workflow = Workflow.stateless<Unit, Unit, Unit> {
+      runningWorker(Worker.createSideEffect { throw ExpectedException() })
     }
 
     assertFailsWith<ExpectedException> {
       workflow.launchForTestingFromStartWith {
         assertFalse(this.hasOutput)
-
-        channel.cancel(CancellationException(null, ExpectedException()))
 
         awaitNextOutput()
       }

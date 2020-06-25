@@ -1,8 +1,9 @@
-package com.squareup.workflow.internal;
+package com.squareup.workflow;
 
-import com.squareup.workflow.Worker;
+import kotlin.reflect.KType;
 import kotlinx.coroutines.flow.Flow;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Worker that incorrectly returns null from {@link #run}, to simulate the default behavior of some
@@ -11,6 +12,11 @@ import org.jetbrains.annotations.NotNull;
  * See <a href="https://github.com/square/workflow/issues/842">#842</a>.
  */
 class NullFlowWorker implements Worker {
+
+  @Nullable @Override public KType getOutputType() {
+    return null;
+  }
+
   @NotNull @Override public Flow run() {
     //noinspection ConstantConditions
     return null;

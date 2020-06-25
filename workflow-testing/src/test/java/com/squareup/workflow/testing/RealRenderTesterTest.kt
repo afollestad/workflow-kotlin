@@ -38,6 +38,7 @@ import com.squareup.workflow.stateless
 import com.squareup.workflow.workflowIdentifier
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -45,7 +46,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalWorkflowApi::class)
+@OptIn(ExperimentalWorkflowApi::class, ExperimentalStdlibApi::class)
 class RealRenderTesterTest {
 
   private interface OutputWhateverChild : Workflow<Unit, Unit, Unit>
@@ -79,7 +80,7 @@ class RealRenderTesterTest {
     // Don't need an implementation, the test should fail before even calling render.
     val workflow = Workflow.stateless<Unit, Unit, Unit> {}
     val tester = workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
+        .expectWorker(typeOf<Worker<Unit>>(), output = WorkflowOutput(Unit))
 
     val failure = assertFailsWith<IllegalStateException> {
       tester.expectWorkflow(
@@ -108,97 +109,6 @@ class RealRenderTesterTest {
 
     // Doesn't throw.
     tester.expectWorkflow(workflow::class, rendering = Unit)
-  }
-
-  @Test fun `expectWorker with output throws when already expecting worker output`() {
-    // Don't need an implementation, the test should fail before even calling render.
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {}
-    val tester = workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
-
-    val failure = assertFailsWith<IllegalStateException> {
-      tester.expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
-    }
-
-    val failureMessage = failure.message!!
-    assertTrue(failureMessage.startsWith("Expected only one child to emit an output:"))
-    assertEquals(
-        3, failureMessage.lines().size,
-        "Expected error message to have 3 lines, but was ${failureMessage.lines().size}"
-    )
-    assertEquals(2, failureMessage.lines().count { "ExpectedWorker" in it })
-  }
-
-  @Test fun `expectWorker with output throws when already expecting workflow output`() {
-    // Don't need an implementation, the test should fail before even calling render.
-    val workflow = Workflow.stateless<Unit, Unit, Unit> {}
-    val tester = workflow.testRender(Unit)
-        .expectWorkflow(
-            workflow::class, rendering = Unit,
-            output = WorkflowOutput(Unit)
-        )
-
-    val failure = assertFailsWith<IllegalStateException> {
-      tester.expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
-    }
-
-    val failureMessage = failure.message!!
-    assertTrue(failureMessage.startsWith("Expected only one child to emit an output:"))
-    assertEquals(
-        3, failureMessage.lines().size,
-        "Expected error message to have 3 lines, but was ${failureMessage.lines().size}"
-    )
-    assertEquals(1, failureMessage.lines().count { "ExpectedWorker" in it })
-    assertEquals(1, failureMessage.lines().count { "ExpectedWorkflow" in it })
-  }
-
-  @Test fun `expectWorker without output doesn't throw when already expecting output`() {
-    // Don't need an implementation, the test should fail before even calling render.
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {}
-    val tester = workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
-
-    // Doesn't throw.
-    tester.expectWorker(matchesWhen = { true })
-  }
-
-  @Test fun `expectWorker taking Worker matches`() {
-    val worker = object : Worker<String> {
-      override fun doesSameWorkAs(otherWorker: Worker<*>) = otherWorker === this
-      override fun run() = emptyFlow<Nothing>()
-    }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      runningWorker(worker) { noAction() }
-    }
-
-    workflow.testRender(Unit)
-        .expectWorker(worker)
-        .render()
-  }
-
-  @Test fun `expectWorker taking Worker doesn't match`() {
-    val worker1 = object : Worker<String> {
-      override fun doesSameWorkAs(otherWorker: Worker<*>) = otherWorker === this
-      override fun toString(): String = "Worker1"
-      override fun run() = emptyFlow<Nothing>()
-    }
-    val worker2 = object : Worker<String> {
-      override fun doesSameWorkAs(otherWorker: Worker<*>) = otherWorker === this
-      override fun toString(): String = "Worker2"
-      override fun run() = emptyFlow<Nothing>()
-    }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      runningWorker(worker1) { noAction() }
-    }
-    val tester = workflow.testRender(Unit)
-        .expectWorker(worker2)
-
-    val error = assertFailsWith<AssertionError> {
-      tester.render()
-    }
-    assertTrue(
-        error.message!!.startsWith("Expected 1 more workflows, workers, or side effects to be ran:")
-    )
   }
 
   @Test fun `expectSideEffect throws when already expecting side effect`() {
@@ -285,7 +195,7 @@ class RealRenderTesterTest {
     )
 
     workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
+        .expectWorker(typeOf<Worker<Unit>>(), output = WorkflowOutput(Unit))
         .render { sink ->
           val error = assertFailsWith<IllegalStateException> {
             sink.send(TestAction())
@@ -444,7 +354,7 @@ class RealRenderTesterTest {
       runningWorker(worker)
     }
     val tester = workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { false })
+        .expectWorker(typeOf<Worker<Unit>>())
 
     val error = assertFailsWith<AssertionError> {
       tester.render()
@@ -481,7 +391,7 @@ class RealRenderTesterTest {
       runningWorker(worker, key = "key")
     }
     val tester = workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { true })
+        .expectWorker(typeOf<Worker<Unit>>())
 
     val error = assertFailsWith<AssertionError> {
       tester.render()
@@ -503,7 +413,7 @@ class RealRenderTesterTest {
     }
     val tester = workflow.testRender(Unit)
         .expectWorker(
-            matchesWhen = { true },
+            typeOf<Worker<Unit>>(),
             key = "wrong key"
         )
 
@@ -525,8 +435,8 @@ class RealRenderTesterTest {
       runningWorker(worker)
     }
     val tester = workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { true })
-        .expectWorker(matchesWhen = { true })
+        .expectWorker(worker)
+        .expectWorker(worker)
 
     val error = assertFailsWith<AssertionError> {
       tester.render()
@@ -561,8 +471,9 @@ class RealRenderTesterTest {
       // Do nothing.
     }
     val tester = workflow.testRender(Unit)
-        .expectWorker(matchesWhen = { true })
+        .expectWorker(typeOf<Worker<Unit>>())
 
+    tester.render()
     val error = assertFailsWith<AssertionError> {
       tester.render()
     }
@@ -744,10 +655,7 @@ class RealRenderTesterTest {
       runningWorker(worker) { TestAction(it) }
     }
     val testResult = workflow.testRender(Unit)
-        .expectWorker(
-            matchesWhen = { true },
-            output = WorkflowOutput("output")
-        )
+        .expectWorker(worker, output = WorkflowOutput("output"))
         .render()
 
     testResult.verifyAction {

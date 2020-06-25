@@ -22,8 +22,14 @@ import com.squareup.workflow.Workflow
 import com.squareup.workflow.WorkflowAction
 import com.squareup.workflow.WorkflowIdentifier
 import com.squareup.workflow.WorkflowOutput
+import com.squareup.workflow.unsnapshottableIdentifier
 import com.squareup.workflow.workflowIdentifier
 import kotlin.reflect.KClass
+import kotlin.reflect.KType
+import kotlin.reflect.KTypeProjection
+import kotlin.reflect.KTypeProjection.Companion.STAR
+import kotlin.reflect.full.createType
+import kotlin.reflect.typeOf
 
 @Deprecated(
     "Renamed to testRender",
@@ -340,25 +346,6 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
         })
 
   /**
-   * Specifies that this render pass is expected to run a particular worker.
-   *
-   * @param matchesWhen Predicate used to determine if this matches the worker being ran.
-   * @param key The key passed to [runningWorker][com.squareup.workflow.RenderContext.runningWorker]
-   * when rendering this workflow.
-   * @param output If non-null, [WorkflowOutput.value] will be emitted when this worker is ran.
-   * The [WorkflowAction] used to handle this output can be verified using methods on
-   * [RenderTestResult].
-   * @param description Optional string that will be used to describe this expectation in error
-   * messages.
-   */
-  fun expectWorker(
-    matchesWhen: (otherWorker: Worker<*>) -> Boolean,
-    key: String = "",
-    output: WorkflowOutput<Any?>? = null,
-    description: String = ""
-  ): RenderTester<PropsT, StateT, OutputT, RenderingT>
-
-  /**
    * Specifies that this render pass is expected to run a particular side effect.
    *
    * @param key The key passed to
@@ -396,11 +383,6 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
 /**
  * Specifies that this render pass is expected to run a particular worker.
  *
- * @param doesSameWorkAs Worker passed to the actual worker's
- * [doesSameWorkAs][Worker.doesSameWorkAs] method to identify the worker. Note that the actual
- * method is called on the worker instance given by the workflow-under-test, and the value of this
- * argument is passed to that method – if you need custom comparison logic for some reason, use
- * the overload of this method that takes a `matchesWhen` parameter.
  * @param key The key passed to [runningWorker][com.squareup.workflow.RenderContext.runningWorker]
  * when rendering this workflow.
  * @param output If non-null, [WorkflowOutput.value] will be emitted when this worker is ran.
@@ -409,17 +391,117 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
  * @param description Optional string that will be used to describe this expectation in error
  * messages.
  */
+// worker parameter is required for type inference.
+@Suppress("UNUSED_PARAMETER")
+@OptIn(ExperimentalStdlibApi::class, ExperimentalWorkflowApi::class)
+/* ktlint-disable parameter-list-wrapping */
+inline fun <T, reified W : Worker<T>, PropsT, StateT, OutputT, RenderingT>
+    RenderTester<PropsT, StateT, OutputT, RenderingT>.expectWorker(
+  worker: W,
+  key: String = "",
+  crossinline matchesWhen: (W) -> Boolean = { true },
+  output: WorkflowOutput<T>? = null,
+  description: String = ""
+): RenderTester<PropsT, StateT, OutputT, RenderingT> =
+/* ktlint-enable parameter-list-wrapping */
+  expectWorker(
+      workerType = typeOf<W>(),
+      key = key,
+      matchesWhen = { matchesWhen(it as W) },
+      output = output,
+      description = description
+  )
+
+/**
+ * Specifies that this render pass is expected to run a particular worker.
+ *
+ * @param key The key passed to [runningWorker][com.squareup.workflow.RenderContext.runningWorker]
+ * when rendering this workflow.
+ * @param output If non-null, [WorkflowOutput.value] will be emitted when this worker is ran.
+ * The [WorkflowAction] used to handle this output can be verified using methods on
+ * [RenderTestResult].
+ * @param description Optional string that will be used to describe this expectation in error
+ * messages.
+ */
+@OptIn(ExperimentalStdlibApi::class, ExperimentalWorkflowApi::class)
 /* ktlint-disable parameter-list-wrapping */
 fun <PropsT, StateT, OutputT, RenderingT>
-    RenderTester<PropsT, StateT, OutputT, RenderingT>.expectWorker(
-  doesSameWorkAs: Worker<*>,
+    RenderTester<PropsT, StateT, OutputT, RenderingT>.expectAnyWorkerOutputting(
+  outputType: KType,
   key: String = "",
   output: WorkflowOutput<Any?>? = null,
   description: String = ""
-): RenderTester<PropsT, StateT, OutputT, RenderingT> = expectWorker(
+): RenderTester<PropsT, StateT, OutputT, RenderingT> =
+  expectWorker(Worker::class, listOf(outputType), key, output = output, description = description)
 /* ktlint-enable parameter-list-wrapping */
-    matchesWhen = { it.doesSameWorkAs(doesSameWorkAs) },
+
+/**
+ * Specifies that this render pass is expected to run a particular worker.
+ *
+ * @param key The key passed to [runningWorker][com.squareup.workflow.RenderContext.runningWorker]
+ * when rendering this workflow.
+ * @param output If non-null, [WorkflowOutput.value] will be emitted when this worker is ran.
+ * The [WorkflowAction] used to handle this output can be verified using methods on
+ * [RenderTestResult].
+ * @param description Optional string that will be used to describe this expectation in error
+ * messages.
+ */
+@OptIn(ExperimentalStdlibApi::class, ExperimentalWorkflowApi::class)
+/* ktlint-disable parameter-list-wrapping */
+fun <T, W : Worker<T>, PropsT, StateT, OutputT, RenderingT>
+    RenderTester<PropsT, StateT, OutputT, RenderingT>.expectWorker(
+  workerClass: KClass<out W>,
+  typeArgs: List<KType?> = emptyList(),
+  key: String = "",
+  matchesWhen: (W) -> Boolean = { true },
+  output: WorkflowOutput<T>? = null,
+  description: String = ""
+): RenderTester<PropsT, StateT, OutputT, RenderingT>
+/* ktlint-enable parameter-list-wrapping */ {
+  val typeProjections = (typeArgs.asSequence() + generateSequence { Unit }.map { null })
+      .zip(workerClass.typeParameters.asSequence()) { typeArg, typeParam ->
+        if (typeArg == null) STAR else KTypeProjection(typeParam.variance, typeArg)
+      }
+      .toList()
+  val workerType = workerClass.createType(typeProjections)
+
+  @Suppress("UNCHECKED_CAST")
+  return expectWorker(
+      workerType = workerType,
+      key = key,
+      matchesWhen = { matchesWhen(it as W) },
+      output = output,
+      description = description
+  )
+}
+
+/**
+ * Specifies that this render pass is expected to run a particular worker.
+ *
+ * @param workerType TODO
+ * @param key The key passed to [runningWorker][com.squareup.workflow.RenderContext.runningWorker]
+ * when rendering this workflow.
+ * @param output If non-null, [WorkflowOutput.value] will be emitted when this worker is ran.
+ * The [WorkflowAction] used to handle this output can be verified using methods on
+ * [RenderTestResult].
+ * @param description Optional string that will be used to describe this expectation in error
+ * messages.
+ */
+@OptIn(ExperimentalStdlibApi::class, ExperimentalWorkflowApi::class)
+/* ktlint-disable parameter-list-wrapping */
+fun <PropsT, StateT, OutputT, RenderingT>
+    RenderTester<PropsT, StateT, OutputT, RenderingT>.expectWorker(
+  workerType: KType,
+  key: String = "",
+  matchesWhen: (Worker<*>) -> Boolean = { true },
+  output: WorkflowOutput<Any?>? = null,
+  description: String = ""
+): RenderTester<PropsT, StateT, OutputT, RenderingT> = expectWorkflow(
+/* ktlint-enable parameter-list-wrapping */
+    identifier = unsnapshottableIdentifier(workerType),
+    rendering = Unit,
     key = key,
+    assertProps = { matchesWhen(it as Worker<*>) },
     output = output,
-    description = description.ifBlank { doesSameWorkAs.toString() }
+    description = description.ifBlank { "worker $workerType" }
 )

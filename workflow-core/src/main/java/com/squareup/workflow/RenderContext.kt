@@ -21,6 +21,8 @@ package com.squareup.workflow
 
 import com.squareup.workflow.WorkflowAction.Companion.noAction
 import com.squareup.workflow.WorkflowAction.Updater
+import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 
 /**
  * Facilities for a [Workflow] to interact with other [Workflow]s and the outside world from inside
@@ -110,19 +112,6 @@ interface RenderContext<out PropsT, StateT, in OutputT> {
   ): ChildRenderingT
 
   /**
-   * Ensures [worker] is running. When the [Worker] emits an output, [handler] is called
-   * to determine the [WorkflowAction] to take. When the worker finishes, nothing happens (although
-   * another render pass may be triggered).
-   *
-   * @param key An optional string key that is used to distinguish between identical [Worker]s.
-   */
-  fun <T> runningWorker(
-    worker: Worker<T>,
-    key: String = "",
-    handler: (T) -> WorkflowAction<PropsT, StateT, OutputT>
-  )
-
-  /**
    * Ensures [sideEffect] is running with the given [key].
    *
    * The first render pass in which this method is called, [sideEffect] will be launched in a new
@@ -203,6 +192,48 @@ fun <PropsT, StateT, OutputT> RenderContext<PropsT, StateT, OutputT>.runningWork
 }
 
 /**
+ * Ensures [worker] is running. When the [Worker] emits an output, [handler] is called
+ * to determine the [WorkflowAction] to take. When the worker finishes, nothing happens (although
+ * another render pass may be triggered).
+ *
+ * @param key An optional string key that is used to distinguish between identical [Worker]s.
+ */
+@OptIn(ExperimentalStdlibApi::class)
+/* ktlint-disable parameter-list-wrapping */
+inline fun <reified T, reified W : Worker<T>, PropsT, StateT, OutputT>
+    RenderContext<PropsT, StateT, OutputT>.runningWorker(
+  worker: W,
+  key: String = "",
+  noinline handler: (T) -> WorkflowAction<PropsT, StateT, OutputT>
+) {
+/* ktlint-enable parameter-list-wrapping */
+  runningWorker(worker, typeOf<W>(), key, handler)
+}
+
+/**
+ * Ensures [worker] is running. When the [Worker] emits an output, [handler] is called
+ * to determine the [WorkflowAction] to take. When the worker finishes, nothing happens (although
+ * another render pass may be triggered).
+ *
+ * @param workerType `typeOf<W>()`
+ * @param key An optional string key that is used to distinguish between identical [Worker]s.
+ */
+@OptIn(ExperimentalStdlibApi::class)
+@PublishedApi
+/* ktlint-disable parameter-list-wrapping */
+internal fun <T, PropsT, StateT, OutputT>
+    RenderContext<PropsT, StateT, OutputT>.runningWorker(
+  worker: Worker<T>,
+  workerType: KType,
+  key: String = "",
+  handler: (T) -> WorkflowAction<PropsT, StateT, OutputT>
+) {
+/* ktlint-enable parameter-list-wrapping */
+  val workerWorkflow = WorkerWorkflow<T>(workerType, key)
+  renderChild(workerWorkflow, props = worker, key = key, handler = handler)
+}
+
+/**
  * Alternative to [RenderContext.actionSink] that allows externally defined
  * event types to be mapped to anonymous [WorkflowAction]s.
  */
@@ -223,8 +254,8 @@ fun <EventT, PropsT, StateT, OutputT> RenderContext<PropsT, StateT, OutputT>.mak
     "Use runningWorker",
     ReplaceWith("runningWorker(worker, key, handler)", "com.squareup.workflow.runningWorker")
 )
-fun <PropsT, StateT, OutputT, T> RenderContext<PropsT, StateT, OutputT>.onWorkerOutput(
+inline fun <PropsT, StateT, OutputT, reified T> RenderContext<PropsT, StateT, OutputT>.onWorkerOutput(
   worker: Worker<T>,
   key: String = "",
-  handler: (T) -> WorkflowAction<PropsT, StateT, OutputT>
+  noinline handler: (T) -> WorkflowAction<PropsT, StateT, OutputT>
 ) = runningWorker(worker, key, handler)

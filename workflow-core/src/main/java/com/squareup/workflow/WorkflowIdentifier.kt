@@ -214,12 +214,14 @@ fun unsnapshottableIdentifier(type: KType): WorkflowIdentifier = WorkflowIdentif
 val KClass<out Workflow<*, *, *>>.workflowIdentifier: WorkflowIdentifier
   get() {
     val workflowClass = this@workflowIdentifier
-    require(
-        !ImpostorWorkflow::class.java.isAssignableFrom(workflowClass.java)
-    ) { "Cannot create WorkflowIdentifier from a KClass of ImpostorWorkflow: ${workflowClass.qualifiedName}" }
+    require(!ImpostorWorkflow::class.java.isAssignableFrom(workflowClass.java)) {
+      "Cannot create WorkflowIdentifier from a KClass of ImpostorWorkflow: " +
+          workflowClass.qualifiedName.toString()
+    }
     return WorkflowIdentifier(type = workflowClass)
   }
 
+// TODO delete this, it's not used
 /**
  * Creates a [WorkflowIdentifier] that identifies the [ImpostorWorkflow] this [KClass] represents.
  *
