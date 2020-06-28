@@ -21,7 +21,7 @@ import com.squareup.workflow.WorkflowAction.Updater
 /**
  * An atomic operation that updates the state of a [Workflow], and also optionally emits an output.
  */
-interface WorkflowAction<StateT, out OutputT> {
+interface WorkflowAction<in PropsT, StateT, out OutputT> {
   @Deprecated("Use Updater")
   class Mutator<S>(var state: S)
 
@@ -31,7 +31,10 @@ interface WorkflowAction<StateT, out OutputT> {
    *
    * @param nextState the state that the workflow should move to. Default is the current state.
    */
-  class Updater<S, in O>(var nextState: S) {
+  class Updater<out P, S, in O>(
+    val props: P,
+    var nextState: S
+  ) {
     internal var output: WorkflowOutput<@UnsafeVariance O>? = null
       private set
 
@@ -49,7 +52,7 @@ interface WorkflowAction<StateT, out OutputT> {
    * setting the [OutputT] to emit.
    */
   @Suppress("DEPRECATION")
-  fun Updater<StateT, OutputT>.apply() {
+  fun Updater<PropsT, StateT, OutputT>.apply() {
     val mutator = Mutator(nextState)
     mutator.apply()
         ?.let { setOutput(it) }
@@ -70,8 +73,8 @@ interface WorkflowAction<StateT, out OutputT> {
      * Use this to, for example, ignore the output of a child workflow or worker.
      */
     @Suppress("UNCHECKED_CAST")
-    fun <StateT, OutputT> noAction(): WorkflowAction<StateT, OutputT> =
-      NO_ACTION as WorkflowAction<StateT, OutputT>
+    fun <StateT, OutputT> noAction(): WorkflowAction<*, StateT, OutputT> =
+      NO_ACTION as WorkflowAction<*, StateT, OutputT>
 
     /**
      * Convenience function that returns a [WorkflowAction] that will just set the state to [newState]
@@ -87,7 +90,7 @@ interface WorkflowAction<StateT, out OutputT> {
     fun <StateT, OutputT> enterState(
       newState: StateT,
       emittingOutput: OutputT? = null
-    ): WorkflowAction<StateT, OutputT> =
+    ): WorkflowAction<Any?, StateT, OutputT> =
       action({ "enterState($newState, $emittingOutput)" }) {
         nextState = newState
         emittingOutput?.let { setOutput(it) }
@@ -108,7 +111,7 @@ interface WorkflowAction<StateT, out OutputT> {
       name: String,
       newState: StateT,
       emittingOutput: OutputT? = null
-    ): WorkflowAction<StateT, OutputT> =
+    ): WorkflowAction<Any?, StateT, OutputT> =
       action({ "enterState($name, $newState, $emittingOutput)" }) {
         nextState = newState
         emittingOutput?.let { setOutput(it) }
@@ -128,7 +131,7 @@ interface WorkflowAction<StateT, out OutputT> {
       name: () -> String,
       emittingOutput: OutputT? = null,
       modify: (StateT) -> StateT
-    ): WorkflowAction<StateT, OutputT> =
+    ): WorkflowAction<Any?, StateT, OutputT> =
       action({ "modifyState(${name()}, $emittingOutput)" }) {
         nextState = modify(nextState)
         emittingOutput?.let { setOutput(it) }
@@ -144,7 +147,7 @@ interface WorkflowAction<StateT, out OutputT> {
             imports = arrayOf("com.squareup.workflow.action")
         )
     )
-    fun <StateT, OutputT> emitOutput(output: OutputT): WorkflowAction<StateT, OutputT> =
+    fun <StateT, OutputT> emitOutput(output: OutputT): WorkflowAction<Any?, StateT, OutputT> =
       action({ "emitOutput($output)" }) { setOutput(output) }
 
     /**
@@ -160,10 +163,10 @@ interface WorkflowAction<StateT, out OutputT> {
     fun <StateT, OutputT> emitOutput(
       name: String,
       output: OutputT
-    ): WorkflowAction<StateT, OutputT> =
+    ): WorkflowAction<Any?, StateT, OutputT> =
       action({ "emitOutput($name, $output)" }) { setOutput(output) }
 
-    private val NO_ACTION = action<Any, Any>({ "noAction" }) { }
+    private val NO_ACTION = action<Any?, Any?, Any?>({ "noAction" }) {}
   }
 }
 
@@ -180,9 +183,9 @@ interface WorkflowAction<StateT, out OutputT> {
  * @see StatelessWorkflow.action
  * @see StatefulWorkflow.action
  */
-inline fun <StateT, OutputT> action(
+inline fun <PropsT, StateT, OutputT> action(
   name: String = "",
-  crossinline apply: Updater<StateT, OutputT>.() -> Unit
+  crossinline apply: Updater<PropsT, StateT, OutputT>.() -> Unit
 ) = action({ name }, apply)
 
 /**
@@ -198,20 +201,21 @@ inline fun <StateT, OutputT> action(
  * @see StatelessWorkflow.action
  * @see StatefulWorkflow.action
  */
-inline fun <StateT, OutputT> action(
+inline fun <PropsT, StateT, OutputT> action(
   crossinline name: () -> String,
-  crossinline apply: Updater<StateT, OutputT>.() -> Unit
-): WorkflowAction<StateT, OutputT> = object : WorkflowAction<StateT, OutputT> {
-  override fun Updater<StateT, OutputT>.apply() = apply.invoke(this)
+  crossinline apply: Updater<PropsT, StateT, OutputT>.() -> Unit
+): WorkflowAction<PropsT, StateT, OutputT> = object : WorkflowAction<PropsT, StateT, OutputT> {
+  override fun Updater<PropsT, StateT, OutputT>.apply() = apply.invoke(this)
   override fun toString(): String = "WorkflowAction(${name()})@${hashCode()}"
 }
 
 /** Applies this [WorkflowAction] to [state]. */
 @ExperimentalWorkflowApi
-fun <StateT, OutputT> WorkflowAction<StateT, OutputT>.applyTo(
+fun <PropsT, StateT, OutputT> WorkflowAction<PropsT, StateT, OutputT>.applyTo(
+  props: PropsT,
   state: StateT
 ): Pair<StateT, WorkflowOutput<OutputT>?> {
-  val updater = Updater<StateT, OutputT>(state)
+  val updater = Updater<PropsT, StateT, OutputT>(props, state)
   updater.apply()
   return Pair(updater.nextState, updater.output)
 }
