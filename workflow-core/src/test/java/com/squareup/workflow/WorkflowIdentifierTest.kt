@@ -47,6 +47,11 @@ class WorkflowIdentifierTest {
     )
   }
 
+  @Test fun `impostor identifier description`() {
+    val id = TestImpostor1(TestWorkflow1).identifier
+    assertEquals("TestImpostor1(TestWorkflow1)", id.describeRealIdentifier())
+  }
+
   @Test fun `restored identifier toString`() {
     val id = TestWorkflow1.identifier
     val serializedId = id.toByteStringOrNull()!!
@@ -303,9 +308,10 @@ class WorkflowIdentifierTest {
   }
 
   private class TestImpostor1(
-    proxied: Workflow<*, *, *>
+    private val proxied: Workflow<*, *, *>
   ) : Workflow<Nothing, Nothing, Nothing>, ImpostorWorkflow {
     override val realIdentifier: WorkflowIdentifier = proxied.identifier
+    override fun describeRealIdentifier(): String? = "TestImpostor1(${proxied::class.simpleName})"
     override fun asStatefulWorkflow(): StatefulWorkflow<Nothing, *, Nothing, Nothing> =
       throw NotImplementedError()
   }

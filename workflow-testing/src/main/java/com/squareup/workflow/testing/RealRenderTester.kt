@@ -30,6 +30,10 @@ import com.squareup.workflow.identifier
 import com.squareup.workflow.testing.RealRenderTester.Expectation.ExpectedSideEffect
 import com.squareup.workflow.testing.RealRenderTester.Expectation.ExpectedWorker
 import com.squareup.workflow.testing.RealRenderTester.Expectation.ExpectedWorkflow
+import kotlin.reflect.KClass
+import kotlin.reflect.KType
+import kotlin.reflect.full.isSuperclassOf
+import kotlin.reflect.full.isSupertypeOf
 
 @OptIn(ExperimentalWorkflowApi::class)
 internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
@@ -46,6 +50,8 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     Sink<WorkflowAction<PropsT, StateT, OutputT>> {
 
   internal sealed class Expectation<out OutputT> {
+    abstract fun describe(): String
+
     open val output: WorkflowOutput<OutputT>? = null
 
     data class ExpectedWorkflow<OutputT, RenderingT>(
@@ -53,17 +59,33 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
       val key: String,
       val assertProps: (props: Any?) -> Unit,
       val rendering: RenderingT,
-      override val output: WorkflowOutput<OutputT>?
-    ) : Expectation<OutputT>()
+      override val output: WorkflowOutput<OutputT>?,
+      val description: String
+    ) : Expectation<OutputT>() {
+      override fun describe(): String = description.ifBlank {
+        "workflow " +
+            "identifier=$identifier, " +
+            "key=$key, " +
+            "rendering=$rendering, " +
+            "output=$output"
+      }
+    }
 
     data class ExpectedWorker<out OutputT>(
       val matchesWhen: (otherWorker: Worker<*>) -> Boolean,
       val key: String,
-      override val output: WorkflowOutput<OutputT>?
-    ) : Expectation<OutputT>()
+      override val output: WorkflowOutput<OutputT>?,
+      val description: String
+    ) : Expectation<OutputT>() {
+      override fun describe(): String = description.ifBlank { "worker key=$key, output=$output" }
+    }
 
-    data class ExpectedSideEffect(val key: String) : Expectation<Nothing>()
+    data class ExpectedSideEffect(val key: String) : Expectation<Nothing>() {
+      override fun describe(): String = "side effect with key \"$key\""
+    }
   }
+
+  private var allowUnexpectedChildren = true
 
   override val actionSink: Sink<WorkflowAction<PropsT, StateT, OutputT>> get() = this
 
@@ -72,9 +94,11 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     rendering: ChildRenderingT,
     key: String,
     assertProps: (props: Any?) -> Unit,
-    output: WorkflowOutput<ChildOutputT>?
+    output: WorkflowOutput<ChildOutputT>?,
+    description: String
   ): RenderTester<PropsT, StateT, OutputT, RenderingT> {
-    val expectedWorkflow = ExpectedWorkflow(identifier, key, assertProps, rendering, output)
+    val expectedWorkflow =
+      ExpectedWorkflow(identifier, key, assertProps, rendering, output, description)
     if (output != null) {
       checkNoOutputs(expectedWorkflow)
       childWillEmitOutput = true
@@ -86,9 +110,10 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
   override fun expectWorker(
     matchesWhen: (otherWorker: Worker<*>) -> Boolean,
     key: String,
-    output: WorkflowOutput<Any?>?
+    output: WorkflowOutput<Any?>?,
+    description: String
   ): RenderTester<PropsT, StateT, OutputT, RenderingT> {
-    val expectedWorker = ExpectedWorker(matchesWhen, key, output)
+    val expectedWorker = ExpectedWorker(matchesWhen, key, output, description)
     if (output != null) {
       checkNoOutputs(expectedWorker)
       childWillEmitOutput = true
@@ -105,6 +130,12 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     return this
   }
 
+  // TODO unit tests
+  override fun disallowUnexpectedChildren(): RenderTester<PropsT, StateT, OutputT, RenderingT> {
+    allowUnexpectedChildren = false
+    return this
+  }
+
   override fun render(block: (RenderingT) -> Unit): RenderTestResult<PropsT, StateT, OutputT> {
     // Clone the expectations to run a "dry" render pass.
     val noopContext = deepCloneForRender()
@@ -117,11 +148,29 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     if (expectations.isNotEmpty()) {
       throw AssertionError(
           "Expected ${expectations.size} more workflows, workers, or side effects to be ran:\n" +
-              expectations.joinToString(separator = "\n") { "  $it" }
+              expectations.joinToString(separator = "\n") { "  ${it.describe()}" }
       )
     }
 
     return this
+  }
+
+  // TODO unit tests
+  private fun childIdentifierMatchesExpected(
+    child: WorkflowIdentifier,
+    expected: WorkflowIdentifier
+  ): Boolean {
+    val expectedType = expected.getRealIdentifierType()
+    val actualType = child.getRealIdentifierType()
+    return when {
+      expectedType is KType && actualType is KType -> {
+        expectedType.isSupertypeOf(actualType)
+      }
+      expectedType is KClass<*> && actualType is KClass<*> -> {
+        expectedType.isSuperclassOf(actualType)
+      }
+      else -> false
+    }
   }
 
   override fun <ChildPropsT, ChildOutputT, ChildRenderingT> renderChild(
@@ -130,16 +179,20 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     key: String,
     handler: (ChildOutputT) -> WorkflowAction<PropsT, StateT, OutputT>
   ): ChildRenderingT {
-    val expected = consumeExpectedChildWorkflow<ExpectedWorkflow<*, *>>(
+    val expected = consumeExpectedChildWorkflow(
+        hasUnitRenderingType = child.hasUnitRenderingType(),
         predicate = { expectation ->
-          expectation.identifier.matchesActualIdentifierForTest(child.identifier) &&
+          childIdentifierMatchesExpected(child.identifier, expectation.identifier) &&
               expectation.key == key
         },
         description = {
-          "child workflow ${child.identifier}" +
-              key.takeUnless { it.isEmpty() }
-                  ?.let { " with key \"$it\"" }
-                  .orEmpty()
+          buildString {
+            append("child ")
+            append(child.identifier.describeRealIdentifier() ?: "workflow ${child.identifier}")
+            if (key.isNotEmpty()) {
+              append(" with key \"$key\"")
+            }
+          }
         }
     )
 
@@ -181,7 +234,25 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     key: String,
     sideEffect: suspend () -> Unit
   ) {
-    consumeExpectedSideEffect(key) { "sideEffect with key \"$key\"" }
+    val description = "sideEffect with key \"$key\""
+
+    val matchedExpectations = expectations.filterIsInstance<ExpectedSideEffect>()
+        .filter { it.key == key }
+    when {
+      matchedExpectations.isEmpty() && !allowUnexpectedChildren -> throw AssertionError(
+          "Tried to run unexpected $description"
+      )
+      matchedExpectations.size == 1 -> {
+        val expected = matchedExpectations[0]
+        // Move the side effect to the consumed list.
+        expectations -= expected
+        consumedExpectations += expected
+      }
+      else -> throw AssertionError(
+          "Multiple side effects matched $description:\n" +
+              matchedExpectations.joinToString(separator = "\n") { "  ${it.describe()}" }
+      )
+    }
   }
 
   override fun send(value: WorkflowAction<PropsT, StateT, OutputT>) {
@@ -206,30 +277,48 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     }
   }
 
-  private inline fun <reified T : ExpectedWorkflow<*, *>> consumeExpectedChildWorkflow(
-    predicate: (T) -> Boolean,
+  private fun Workflow<*, *, *>.hasUnitRenderingType(): Boolean {
+    // Can't use Kotlin reflection because of what seems to be a bug when the class is anonymous.
+    val thisClass = this::class.java
+    // Multiple java methods may correspond to a single kotlin method.
+    val renderMethods = thisClass.methods.filter { it.name == "render" }
+    return renderMethods.any { it.returnType == Void.TYPE }
+  }
+
+  @OptIn(ExperimentalStdlibApi::class)
+  private fun consumeExpectedChildWorkflow(
+    hasUnitRenderingType: Boolean,
+    predicate: (ExpectedWorkflow<*, *>) -> Boolean,
     description: () -> String
-  ): T {
-    val matchedExpectations = expectations.filterIsInstance<T>()
+  ): ChildRenderResult {
+    val matchedExpectations = expectations.filterIsInstance<ExpectedWorkflow<*, *>>()
         .filter(predicate)
-    val expected = matchedExpectations.singleOrNull()
-        ?: run {
-          throw when {
-            matchedExpectations.isEmpty() -> AssertionError(
-                "Tried to render unexpected ${description()}"
-            )
-            else -> AssertionError(
-                "Multiple workflows matched ${description()}:\n" +
-                    matchedExpectations.joinToString(separator = "\n") { "  $it" }
-            )
-          }
-        }
 
-    // Move the workflow to the consumed list.
-    expectations -= expected
-    consumedExpectations += expected
+    return when {
+      matchedExpectations.isEmpty() && hasUnitRenderingType && allowUnexpectedChildren -> {
+        // Unmatched workflows can never have outputs.
+        ChildRenderResult(rendering = Unit, output = null, assertProps = {})
+      }
+      matchedExpectations.isEmpty() -> {
+        throw AssertionError("Tried to render unexpected ${description()}")
+      }
+      matchedExpectations.size == 1 -> {
+        matchedExpectations.single()
+            .let {
+              // Move the workflow to the consumed list.
+              expectations -= it
+              consumedExpectations += it
 
-    return expected
+              ChildRenderResult(it.output, it.assertProps, it.rendering)
+            }
+      }
+      else -> {
+        throw AssertionError(
+            "Multiple workflows matched ${description()}:\n" +
+                matchedExpectations.joinToString(separator = "\n") { "  ${it.describe()}" }
+        )
+      }
+    }
   }
 
   private inline fun <reified T : ExpectedWorker<*>> consumeExpectedWorker(
@@ -239,7 +328,9 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     val matchedExpectations = expectations.filterIsInstance<T>()
         .filter(predicate)
     return when (matchedExpectations.size) {
-      0 -> null
+      0 -> if (allowUnexpectedChildren) null else throw AssertionError(
+          "Tried to run unexpected ${description()}"
+      )
       1 -> {
         val expected = matchedExpectations[0]
         // Move the worker to the consumed list.
@@ -249,29 +340,7 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
       }
       else -> throw AssertionError(
           "Multiple workers matched ${description()}:\n" +
-              matchedExpectations.joinToString(separator = "\n") { "  $it" }
-      )
-    }
-  }
-
-  private inline fun consumeExpectedSideEffect(
-    key: String,
-    description: () -> String
-  ): ExpectedSideEffect? {
-    val matchedExpectations = expectations.filterIsInstance<ExpectedSideEffect>()
-        .filter { it.key == key }
-    return when (matchedExpectations.size) {
-      0 -> null
-      1 -> {
-        val expected = matchedExpectations[0]
-        // Move the side effect to the consumed list.
-        expectations -= expected
-        consumedExpectations += expected
-        expected
-      }
-      else -> throw AssertionError(
-          "Multiple side effects matched ${description()}:\n" +
-              matchedExpectations.joinToString(separator = "\n") { "  $it" }
+              matchedExpectations.joinToString(separator = "\n") { "  ${it.describe()}" }
       )
     }
   }
@@ -293,4 +362,14 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
           expectationsWithOutputs.joinToString(separator = "\n") { "  $it" }
     }
   }
+
+  /**
+   * Represents the result of rendering a child workflow, either because an [ExpectedWorkflow]
+   * matched or the workflow had a Unit rendering and [disallowUnexpectedChildren] was never called.
+   */
+  private data class ChildRenderResult(
+    val output: WorkflowOutput<Any?>?,
+    val assertProps: (props: Any?) -> Unit,
+    val rendering: Any?
+  )
 }

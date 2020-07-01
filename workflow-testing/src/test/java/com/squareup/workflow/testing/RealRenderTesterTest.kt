@@ -235,7 +235,7 @@ class RealRenderTesterTest {
     assertEquals(
         """
           Expected 1 more workflows, workers, or side effects to be ran:
-            ExpectedSideEffect(key=the key)
+            side effect with key "the key"
         """.trimIndent(),
         error.message
     )
@@ -412,8 +412,8 @@ class RealRenderTesterTest {
     assertEquals(
         """
           Multiple workflows matched child workflow ${Child::class.workflowIdentifier}:
-            ExpectedWorkflow(identifier=${OutputNothingChild::class.workflowIdentifier}, key=, assertProps=(kotlin.Any?) -> kotlin.Unit, rendering=kotlin.Unit, output=null)
-            ExpectedWorkflow(identifier=${Child::class.workflowIdentifier}, key=, assertProps=(kotlin.Any?) -> kotlin.Unit, rendering=kotlin.Unit, output=null)
+            workflow identifier=${OutputNothingChild::class.workflowIdentifier}, key=, rendering=kotlin.Unit, output=null
+            workflow identifier=${Child::class.workflowIdentifier}, key=, rendering=kotlin.Unit, output=null
         """.trimIndent(),
         error.message
     )
@@ -534,8 +534,8 @@ class RealRenderTesterTest {
     assertEquals(
         """
           Multiple workers matched worker TestWorker:
-            ExpectedWorker(matchesWhen=(com.squareup.workflow.Worker<*>) -> kotlin.Boolean, key=, output=null)
-            ExpectedWorker(matchesWhen=(com.squareup.workflow.Worker<*>) -> kotlin.Boolean, key=, output=null)
+            worker key=, output=null
+            worker key=, output=null
         """.trimIndent(),
         error.message
     )
