@@ -223,18 +223,30 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
   /**
    * Specifies that this render pass is expected to render a particular child workflow.
    *
+   * Workflow identifiers are compared taking the type hierarchy into account. When a workflow is
+   * rendered, it will match any expectation that specifies the type of that workflow, or any of
+   * its supertypes. This means that if you have a workflow that is split into an interface and a
+   * concrete class, your render tests can pass the class of the interface to this method instead of
+   * the actual class that implements it.
+   *
    * ## Expecting impostor workflows
    *
-   * Identifiers are compared using [WorkflowIdentifier.matchesActualIdentifierForTest]. If the
-   * workflow-under-test renders an [ImpostorWorkflow][com.squareup.workflow.ImpostorWorkflow],
-   * the expected [identifier] must match the leaf real identifier of the `ImpostorWorkflow`.
+   * If the workflow-under-test renders an
+   * [ImpostorWorkflow][com.squareup.workflow.ImpostorWorkflow], the match will not be performed
+   * using the impostor type, but rather the
+   * [real identifier][WorkflowIdentifier.getRealIdentifierType] of the impostor's
+   * [WorkflowIdentifier]. This will be the last identifier in the chain of impostor workflows'
+   * [realIdentifier][com.squareup.workflow.ImpostorWorkflow.realIdentifier]s.
    *
-   * For example, given the `mapRendering` workflow operator that returns an `ImpostorWorkflow`
-   * which wraps the mapped workflow, the following expectation would succeed:
+   * A workflow that is wrapped multiple times by various operators will be matched on the upstream
+   * workflow, so for example the following expectation would succeed:
    *
    * ```
    * val workflow = Workflow.stateless<…> {
-   *   renderChild(childWorkflow.mapRendering { … })
+   *   renderChild(
+   *     childWorkflow.mapRendering { … }
+   *       .mapOutput { … }
+   *   )
    * }
    *
    * workflow.testRender(…)
@@ -253,6 +265,8 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
    * @param output If non-null, [WorkflowOutput.value] will be "emitted" when this workflow is
    * rendered. The [WorkflowAction] used to handle this output can be verified using methods on
    * [RenderTestResult].
+   * @param description Optional string that will be used to describe this expectation in error
+   * messages.
    */
   @ExperimentalWorkflowApi
   fun <ChildOutputT, ChildRenderingT> expectWorkflow(
@@ -260,20 +274,30 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
     rendering: ChildRenderingT,
     key: String = "",
     assertProps: (props: Any?) -> Unit = {},
-    output: WorkflowOutput<ChildOutputT>? = null
+    output: WorkflowOutput<ChildOutputT>? = null,
+    description: String = ""
   ): RenderTester<PropsT, StateT, OutputT, RenderingT>
 
   /**
    * Specifies that this render pass is expected to render a particular child workflow.
    *
+   * Workflow identifiers are compared taking the type hierarchy into account. When a workflow is
+   * rendered, it will match any expectation that specifies the type of that workflow, or any of
+   * its supertypes. This means that if you have a workflow that is split into an interface and a
+   * concrete class, your render tests can pass the class of the interface to this method instead of
+   * the actual class that implements it.
+   *
    * ## Expecting impostor workflows
    *
-   * Identifiers are compared using [WorkflowIdentifier.matchesActualIdentifierForTest]. If the
-   * workflow-under-test renders an [ImpostorWorkflow][com.squareup.workflow.ImpostorWorkflow],
-   * the expected [identifier] must match the leaf real identifier of the `ImpostorWorkflow`.
+   * If the workflow-under-test renders an
+   * [ImpostorWorkflow][com.squareup.workflow.ImpostorWorkflow], the match will not be performed
+   * using the impostor type, but rather the
+   * [real identifier][WorkflowIdentifier.getRealIdentifierType] of the impostor's
+   * [WorkflowIdentifier]. This will be the last identifier in the chain of impostor workflows'
+   * [realIdentifier][com.squareup.workflow.ImpostorWorkflow.realIdentifier]s.
    *
-   * For example, given the `mapRendering` workflow operator that returns an `ImpostorWorkflow`
-   * which wraps the mapped workflow, the following expectation would succeed:
+   * A workflow that is wrapped multiple times by various operators will be matched on the upstream
+   * workflow, so for example the following expectation would succeed:
    *
    * ```
    * val workflow = Workflow.stateless<…> {
@@ -296,6 +320,8 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
    * @param output If non-null, [WorkflowOutput.value] will be "emitted" when this workflow is
    * rendered. The [WorkflowAction] used to handle this output can be verified using methods on
    * [RenderTestResult].
+   * @param description Optional string that will be used to describe this expectation in error
+   * messages.
    */
   @OptIn(ExperimentalWorkflowApi::class)
   fun <ChildPropsT, ChildOutputT, ChildRenderingT> expectWorkflow(
@@ -303,12 +329,15 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
     rendering: ChildRenderingT,
     key: String = "",
     assertProps: (props: ChildPropsT) -> Unit = {},
-    output: WorkflowOutput<ChildOutputT>? = null
+    output: WorkflowOutput<ChildOutputT>? = null,
+    description: String = ""
   ): RenderTester<PropsT, StateT, OutputT, RenderingT> =
-    expectWorkflow(workflowType.workflowIdentifier, rendering, key, output = output, assertProps = {
-      @Suppress("UNCHECKED_CAST")
-      assertProps(it as ChildPropsT)
-    })
+    expectWorkflow(
+        workflowType.workflowIdentifier, rendering, key, output = output, description = description,
+        assertProps = {
+          @Suppress("UNCHECKED_CAST")
+          assertProps(it as ChildPropsT)
+        })
 
   /**
    * Specifies that this render pass is expected to run a particular worker.
@@ -319,11 +348,14 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
    * @param output If non-null, [WorkflowOutput.value] will be emitted when this worker is ran.
    * The [WorkflowAction] used to handle this output can be verified using methods on
    * [RenderTestResult].
+   * @param description Optional string that will be used to describe this expectation in error
+   * messages.
    */
   fun expectWorker(
     matchesWhen: (otherWorker: Worker<*>) -> Boolean,
     key: String = "",
-    output: WorkflowOutput<Any?>? = null
+    output: WorkflowOutput<Any?>? = null,
+    description: String = ""
   ): RenderTester<PropsT, StateT, OutputT, RenderingT>
 
   /**
@@ -334,6 +366,15 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
    * workflow.
    */
   fun expectSideEffect(key: String): RenderTester<PropsT, StateT, OutputT, RenderingT>
+
+  /**
+   * Causes [render] to throw an [AssertionError] if the workflow renders children or runs workers
+   * or side effects that were not explicitly expected.
+   *
+   * Note that unexpected workflows that don't have a rendering type of [Unit] will always fail,
+   * since the rendering value must be specified.
+   */
+  fun disallowUnexpectedChildren(): RenderTester<PropsT, StateT, OutputT, RenderingT>
 
   /**
    * Execute the workflow's `render` method and run [block] to perform assertions on and send events
@@ -365,25 +406,20 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
  * @param output If non-null, [WorkflowOutput.value] will be emitted when this worker is ran.
  * The [WorkflowAction] used to handle this output can be verified using methods on
  * [RenderTestResult].
+ * @param description Optional string that will be used to describe this expectation in error
+ * messages.
  */
 /* ktlint-disable parameter-list-wrapping */
 fun <PropsT, StateT, OutputT, RenderingT>
     RenderTester<PropsT, StateT, OutputT, RenderingT>.expectWorker(
   doesSameWorkAs: Worker<*>,
   key: String = "",
-  output: WorkflowOutput<Any?>? = null
+  output: WorkflowOutput<Any?>? = null,
+  description: String = ""
 ): RenderTester<PropsT, StateT, OutputT, RenderingT> = expectWorker(
 /* ktlint-enable parameter-list-wrapping */
     matchesWhen = { it.doesSameWorkAs(doesSameWorkAs) },
     key = key,
-    output = output
+    output = output,
+    description = description.ifBlank { doesSameWorkAs.toString() }
 )
-
-/**
- * Wrapper around a potentially-nullable [OutputT] value.
- */
-@Deprecated(
-    "Use WorkflowOutput",
-    ReplaceWith("WorkflowOutput<OutputT>", "com.squareup.workflow.WorkflowOutput")
-)
-typealias EmittedOutput<OutputT> = WorkflowOutput<OutputT>
