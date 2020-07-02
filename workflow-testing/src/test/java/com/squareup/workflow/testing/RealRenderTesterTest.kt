@@ -19,6 +19,7 @@ import com.squareup.workflow.ExperimentalWorkflowApi
 import com.squareup.workflow.ImpostorWorkflow
 import com.squareup.workflow.RenderContext
 import com.squareup.workflow.Sink
+import com.squareup.workflow.Snapshot
 import com.squareup.workflow.StatefulWorkflow
 import com.squareup.workflow.StatelessWorkflow
 import com.squareup.workflow.Worker
@@ -35,17 +36,20 @@ import com.squareup.workflow.renderChild
 import com.squareup.workflow.runningWorker
 import com.squareup.workflow.stateful
 import com.squareup.workflow.stateless
+import com.squareup.workflow.unsnapshottableIdentifier
 import com.squareup.workflow.workflowIdentifier
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalWorkflowApi::class)
+@OptIn(ExperimentalWorkflowApi::class, ExperimentalStdlibApi::class)
 class RealRenderTesterTest {
 
   private interface OutputWhateverChild : Workflow<Unit, Unit, Unit>
@@ -322,8 +326,84 @@ class RealRenderTesterTest {
     )
   }
 
-  @Test fun `renderChild throws when no expectations match`() {
+  @Test
+  fun `renderChild rendering Unit doesn't throw when none expected and unexpected children are allowed`() {
     val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+      renderChild(child)
+    }
+    workflow.testRender(Unit)
+        .render()
+  }
+
+  @Test
+  fun `renderChild rendering Unit throws when none expected and unexpected children are not allowed`() {
+    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+      renderChild(child)
+    }
+    val tester = workflow.testRender(Unit)
+        .disallowUnexpectedChildren()
+
+    val error = assertFailsWith<AssertionError> {
+      tester.render()
+    }
+    assertEquals(
+        "Tried to render unexpected child workflow ${child.identifier}",
+        error.message
+    )
+  }
+
+  @Test
+  fun `renderChild rendering non-Unit throws when none expected and unexpected children are allowed`() {
+    val child = Workflow.stateless<Unit, Nothing, Int> { 42 }
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+      renderChild(child)
+    }
+    val tester = workflow.testRender(Unit)
+
+    val error = assertFailsWith<AssertionError> {
+      tester.render()
+    }
+    assertEquals(
+        "Tried to render unexpected child workflow ${child.identifier}",
+        error.message
+    )
+  }
+
+  @Test
+  fun `renderChild rendering Unit doesn't throw when no expectations match and unexpected children are allowed`() {
+    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+      renderChild(child)
+    }
+    workflow.testRender(Unit)
+        .expectWorkflow(OutputNothingChild::class, rendering = Unit)
+        .render()
+  }
+
+  @Test
+  fun `renderChild rendering Unit throws when no expectations match and unexpected children are not allowed`() {
+    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+      renderChild(child)
+    }
+    val tester = workflow.testRender(Unit)
+        .expectWorkflow(OutputNothingChild::class, rendering = Unit)
+        .disallowUnexpectedChildren()
+
+    val error = assertFailsWith<AssertionError> {
+      tester.render()
+    }
+    assertEquals(
+        "Tried to render unexpected child workflow ${child.identifier}",
+        error.message
+    )
+  }
+
+  @Test
+  fun `renderChild rendering non-Unit throws when no expectations match and unexpected children are allowed`() {
+    val child = Workflow.stateless<Unit, Nothing, Int> { 42 }
     val workflow = Workflow.stateless<Unit, Nothing, Unit> {
       renderChild(child)
     }
@@ -372,13 +452,15 @@ class RealRenderTesterTest {
     )
   }
 
-  @Test fun `renderChild with key throws when key doesn't match`() {
+  @Test
+  fun `renderChild with key throws when key doesn't match and unexpected children are not allowed`() {
     val child = Workflow.stateless<Unit, Nothing, Unit> { }
     val workflow = Workflow.stateless<Unit, Nothing, Unit> {
       renderChild(child, key = "key")
     }
     val tester = workflow.testRender(Unit)
         .expectWorkflow(OutputNothingChild::class, rendering = Unit, key = "wrong key")
+        .disallowUnexpectedChildren()
 
     val error = assertFailsWith<AssertionError> {
       tester.render()
@@ -387,6 +469,17 @@ class RealRenderTesterTest {
         "Tried to render unexpected child workflow ${child.identifier} with key \"key\"",
         error.message
     )
+  }
+
+  @Test
+  fun `renderChild with key doesn't throw when key doesn't match and unexpected children are allowed`() {
+    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+      renderChild(child, key = "key")
+    }
+    workflow.testRender(Unit)
+        .expectWorkflow(OutputNothingChild::class, rendering = Unit, key = "wrong key")
+        .render()
   }
 
   @Test fun `renderChild throws when multiple expectations match`() {
@@ -834,4 +927,195 @@ class RealRenderTesterTest {
 
     assertEquals(2, renderCount)
   }
+
+  @Test fun `hasUnitRenderingType() returns true for Workflow-stateless`() {
+    val workflow = Workflow.stateless<Unit, Nothing, Unit> {}
+    assertTrue(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns false for Workflow-stateless`() {
+    val workflow = Workflow.stateless<Unit, Nothing, Int> { throw NotImplementedError() }
+    assertFalse(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns true for Workflow-stateful`() {
+    val workflow = Workflow.stateful<Unit, Nothing, Unit>(
+        initialState = Unit,
+        render = {}
+    )
+    assertTrue(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns false for Workflow-stateful`() {
+    val workflow = Workflow.stateful<Unit, Nothing, Int>(
+        initialState = Unit,
+        render = { throw NotImplementedError() }
+    )
+    assertFalse(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns true for anonymous Workflow`() {
+    val workflow = object : Workflow<Unit, Nothing, Unit> {
+      override fun asStatefulWorkflow(): StatefulWorkflow<Unit, *, Nothing, Unit> =
+        throw NotImplementedError()
+    }
+    assertTrue(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns false for anonymous Workflow`() {
+    val workflow = object : Workflow<Unit, Nothing, Int> {
+      override fun asStatefulWorkflow(): StatefulWorkflow<Unit, *, Nothing, Int> =
+        throw NotImplementedError()
+    }
+    assertFalse(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns true for anonymous StatefulWorkflow`() {
+    val workflow = object : StatefulWorkflow<Unit, Unit, Nothing, Unit>() {
+      override fun initialState(
+        props: Unit,
+        snapshot: Snapshot?
+      ): Unit = throw NotImplementedError()
+
+      override fun render(
+        props: Unit,
+        state: Unit,
+        context: RenderContext<Unit, Unit, Nothing>
+      ): Unit = throw NotImplementedError()
+
+      override fun snapshotState(state: Unit): Snapshot? = throw NotImplementedError()
+
+    }
+    assertTrue(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns false for anonymous StatefulWorkflow`() {
+    val workflow = object : StatefulWorkflow<Unit, Unit, Nothing, Int>() {
+      override fun initialState(
+        props: Unit,
+        snapshot: Snapshot?
+      ): Unit = throw NotImplementedError()
+
+      override fun render(
+        props: Unit,
+        state: Unit,
+        context: RenderContext<Unit, Unit, Nothing>
+      ) = throw NotImplementedError()
+
+      override fun snapshotState(state: Unit): Snapshot? = throw NotImplementedError()
+
+    }
+    assertFalse(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns true for anonymous StatelessWorkflow`() {
+    val workflow = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+      override fun render(
+        props: Unit,
+        context: RenderContext<Unit, Nothing, Nothing>
+      ): Unit = throw NotImplementedError()
+    }
+    assertTrue(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `hasUnitRenderingType() returns false for anonymous StatelessWorkflow`() {
+    val workflow = object : StatelessWorkflow<Unit, Nothing, Int>() {
+      override fun render(
+        props: Unit,
+        context: RenderContext<Unit, Nothing, Nothing>
+      ) = throw NotImplementedError()
+    }
+    assertFalse(workflow.hasUnitRenderingType())
+  }
+
+  @Test fun `realTypeMatchesExpectation() matches exact type`() {
+    val expected = unsnapshottableIdentifier(typeOf<InvariantGenericType<String>>())
+    val actual = unsnapshottableIdentifier(typeOf<InvariantGenericType<String>>())
+    assertTrue(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test fun `realTypeMatchesExpectation() doesn't match unrelated type`() {
+    val expected = unsnapshottableIdentifier(typeOf<String>())
+    val actual = unsnapshottableIdentifier(typeOf<Int>())
+    assertFalse(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test fun `realTypeMatchesExpectation() doesn't match unrelated type parameter`() {
+    val expected = unsnapshottableIdentifier(typeOf<InvariantGenericType<String>>())
+    val actual = unsnapshottableIdentifier(typeOf<InvariantGenericType<Int>>())
+    assertFalse(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test
+  fun `realTypeMatchesExpectation() doesn't match exact invariant type with supertype parameter`() {
+    val expected = unsnapshottableIdentifier(typeOf<InvariantGenericType<CharSequence>>())
+    val actual = unsnapshottableIdentifier(typeOf<InvariantGenericType<String>>())
+    assertFalse(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test
+  fun `realTypeMatchesExpectation() doesn't match exact invariant type with subtype parameter`() {
+    val expected = unsnapshottableIdentifier(typeOf<InvariantGenericType<String>>())
+    val actual = unsnapshottableIdentifier(typeOf<InvariantGenericType<CharSequence>>())
+    assertFalse(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test fun `realTypeMatchesExpectation() matches exact covariant type with supertype parameter`() {
+    val expected = unsnapshottableIdentifier(typeOf<CovariantGenericType<CharSequence>>())
+    val actual = unsnapshottableIdentifier(typeOf<CovariantGenericType<String>>())
+    assertTrue(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test
+  fun `realTypeMatchesExpectation() doesn't match exact covariant type with subtype parameter`() {
+    val expected = unsnapshottableIdentifier(typeOf<CovariantGenericType<String>>())
+    val actual = unsnapshottableIdentifier(typeOf<CovariantGenericType<CharSequence>>())
+    assertFalse(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test
+  fun `realTypeMatchesExpectation() doesn't match exact contravariant type with supertype parameter`() {
+    val expected = unsnapshottableIdentifier(typeOf<ContravariantGenericType<CharSequence>>())
+    val actual = unsnapshottableIdentifier(typeOf<ContravariantGenericType<String>>())
+    assertFalse(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test
+  fun `realTypeMatchesExpectation() matches exact contravariant type with subtype parameter`() {
+    val expected = unsnapshottableIdentifier(typeOf<ContravariantGenericType<String>>())
+    val actual = unsnapshottableIdentifier(typeOf<ContravariantGenericType<CharSequence>>())
+    assertTrue(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test fun `realTypeMatchesExpectation() matches exact class`() {
+    val expected = TestWorkflow.identifier
+    val actual = TestWorkflow.identifier
+    assertTrue(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test fun `realTypeMatchesExpectation() matches superclass`() {
+    val expected = Workflow::class.workflowIdentifier
+    val actual = TestWorkflow.identifier
+    assertTrue(actual.realTypeMatchesExpectation(expected))
+  }
+
+  @Test fun `realTypeMatchesExpectation() doesn't match subclass`() {
+    val expected = TestWorkflow.identifier
+    val actual = Workflow::class.workflowIdentifier
+    assertFalse(actual.realTypeMatchesExpectation(expected))
+  }
+
+  private object TestWorkflow : Workflow<Nothing, Nothing, Nothing> {
+    override fun asStatefulWorkflow(): StatefulWorkflow<Nothing, *, Nothing, Nothing> =
+      throw NotImplementedError()
+  }
+
+  @Suppress("unused")
+  private interface InvariantGenericType<T>
+
+  @Suppress("unused")
+  private interface CovariantGenericType<out T>
+
+  @Suppress("unused")
+  private interface ContravariantGenericType<in T>
 }

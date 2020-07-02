@@ -155,24 +155,6 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     return this
   }
 
-  // TODO unit tests
-  private fun childIdentifierMatchesExpected(
-    child: WorkflowIdentifier,
-    expected: WorkflowIdentifier
-  ): Boolean {
-    val expectedType = expected.getRealIdentifierType()
-    val actualType = child.getRealIdentifierType()
-    return when {
-      expectedType is KType && actualType is KType -> {
-        expectedType.isSupertypeOf(actualType)
-      }
-      expectedType is KClass<*> && actualType is KClass<*> -> {
-        expectedType.isSuperclassOf(actualType)
-      }
-      else -> false
-    }
-  }
-
   override fun <ChildPropsT, ChildOutputT, ChildRenderingT> renderChild(
     child: Workflow<ChildPropsT, ChildOutputT, ChildRenderingT>,
     props: ChildPropsT,
@@ -182,7 +164,7 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     val expected = consumeExpectedChildWorkflow(
         hasUnitRenderingType = child.hasUnitRenderingType(),
         predicate = { expectation ->
-          childIdentifierMatchesExpected(child.identifier, expectation.identifier) &&
+          child.identifier.realTypeMatchesExpectation(expectation.identifier) &&
               expectation.key == key
         },
         description = {
@@ -277,14 +259,6 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     }
   }
 
-  private fun Workflow<*, *, *>.hasUnitRenderingType(): Boolean {
-    // Can't use Kotlin reflection because of what seems to be a bug when the class is anonymous.
-    val thisClass = this::class.java
-    // Multiple java methods may correspond to a single kotlin method.
-    val renderMethods = thisClass.methods.filter { it.name == "render" }
-    return renderMethods.any { it.returnType == Void.TYPE }
-  }
-
   @OptIn(ExperimentalStdlibApi::class)
   private fun consumeExpectedChildWorkflow(
     hasUnitRenderingType: Boolean,
@@ -372,4 +346,59 @@ internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
     val assertProps: (props: Any?) -> Unit,
     val rendering: Any?
   )
+}
+
+private fun KType.visitTypeArgs() {
+  arguments.forEach { arg ->
+    println("${arg.variance} ${arg.type}")
+  }
+  (classifier as? KClass<*>)?.supertypes?.forEach { it.visitTypeArgs() }
+}
+
+private fun KClass<*>.findWorkflowSubclass(): Any {
+  var currentClass = java
+  while (currentClass.genericInterfaces.none { "com.squareup.workflow.Workflow" in it.typeName }) {
+    currentClass =
+  }
+}
+
+// TODO unit tests
+internal fun Workflow<*, *, *>.hasUnitRenderingType(): Boolean {
+  // Can't use Kotlin reflection because of what seems to be a bug when the class is anonymous.
+//  val thisClass = asStatefulWorkflow()::class.java
+  val workflowClass = this::class.java
+//  val allSupertypes = workflowClass.allSupertypes().toList()
+//  val allTypeArgs = allSupertypes.flatMap { it.arguments }.map { "${it.variance} ${it.type}" }
+//  val typeParams = workflowClass.typeParameters
+//  workflowClass.supertypes.forEach { it.visitTypeArgs() }
+  // Multiple java methods may correspond to a single kotlin method.
+//  val renderMethods = thisClass.methods.filter { it.name == "render" }
+//  return renderMethods.any { it.returnType == Void.TYPE }
+  return false
+}
+
+/**
+ * Returns true iff this identifier's [WorkflowIdentifier.getRealIdentifierType] is the same type as
+ * or a subtype of [expected]'s.
+ */
+@OptIn(ExperimentalWorkflowApi::class)
+internal fun WorkflowIdentifier.realTypeMatchesExpectation(
+  expected: WorkflowIdentifier
+): Boolean {
+  val expectedType = expected.getRealIdentifierType()
+  val actualType = getRealIdentifierType()
+  return when {
+    expectedType is KType && actualType is KType -> {
+      expectedType.isSupertypeOf(actualType)
+    }
+    expectedType is KClass<*> && actualType is KClass<*> -> {
+      expectedType.isSuperclassOf(actualType)
+    }
+    else -> {
+      error(
+          "Expected WorkflowIdentifier type to be KType or KClass: " +
+              "actual: $actualType, expected: $expectedType"
+      )
+    }
+  }
 }
