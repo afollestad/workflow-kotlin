@@ -328,7 +328,14 @@ class RealRenderTesterTest {
 
   @Test
   fun `renderChild rendering Unit doesn't throw when none expected and unexpected children are allowed`() {
-    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+      override fun render(
+        props: Unit,
+        context: RenderContext<Unit, Nothing, Nothing>
+      ) {
+        // Noop
+      }
+    }
     val workflow = Workflow.stateless<Unit, Nothing, Unit> {
       renderChild(child)
     }
@@ -373,7 +380,14 @@ class RealRenderTesterTest {
 
   @Test
   fun `renderChild rendering Unit doesn't throw when no expectations match and unexpected children are allowed`() {
-    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+      override fun render(
+        props: Unit,
+        context: RenderContext<Unit, Nothing, Nothing>
+      ) {
+        // Noop
+      }
+    }
     val workflow = Workflow.stateless<Unit, Nothing, Unit> {
       renderChild(child)
     }
@@ -473,7 +487,14 @@ class RealRenderTesterTest {
 
   @Test
   fun `renderChild with key doesn't throw when key doesn't match and unexpected children are allowed`() {
-    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+      override fun render(
+        props: Unit,
+        context: RenderContext<Unit, Nothing, Nothing>
+      ) {
+        // Noop
+      }
+    }
     val workflow = Workflow.stateless<Unit, Nothing, Unit> {
       renderChild(child, key = "key")
     }
@@ -928,9 +949,10 @@ class RealRenderTesterTest {
     assertEquals(2, renderCount)
   }
 
-  @Test fun `hasUnitRenderingType() returns true for Workflow-stateless`() {
+  @Test fun `hasUnitRenderingType() returns false for Workflow-stateless (KT-17103)`() {
     val workflow = Workflow.stateless<Unit, Nothing, Unit> {}
-    assertTrue(workflow.hasUnitRenderingType())
+    // This should return true once https://youtrack.jetbrains.com/issue/KT-17103 is fixed.
+    assertFalse(workflow.hasUnitRenderingType())
   }
 
   @Test fun `hasUnitRenderingType() returns false for Workflow-stateless`() {
@@ -938,12 +960,13 @@ class RealRenderTesterTest {
     assertFalse(workflow.hasUnitRenderingType())
   }
 
-  @Test fun `hasUnitRenderingType() returns true for Workflow-stateful`() {
+  @Test fun `hasUnitRenderingType() returns false for Workflow-stateful (KT-17103)`() {
     val workflow = Workflow.stateful<Unit, Nothing, Unit>(
         initialState = Unit,
         render = {}
     )
-    assertTrue(workflow.hasUnitRenderingType())
+    // This should return true once https://youtrack.jetbrains.com/issue/KT-17103 is fixed.
+    assertFalse(workflow.hasUnitRenderingType())
   }
 
   @Test fun `hasUnitRenderingType() returns false for Workflow-stateful`() {

@@ -33,11 +33,9 @@ import com.squareup.workflow.testing.RealRenderTester.Expectation.ExpectedWorkfl
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 import kotlin.reflect.full.allSupertypes
-import kotlin.reflect.full.declaredFunctions
-import kotlin.reflect.full.functions
 import kotlin.reflect.full.isSuperclassOf
 import kotlin.reflect.full.isSupertypeOf
-import kotlin.reflect.full.memberFunctions
+import kotlin.reflect.typeOf
 
 @OptIn(ExperimentalWorkflowApi::class)
 internal class RealRenderTester<PropsT, StateT, OutputT, RenderingT>(
@@ -366,47 +364,40 @@ private fun KType.visitTypeArgs() {
 //  }
 //}
 
-// TODO unit tests
+/**
+ * Returns true if this workflow has the `RenderingT` type of [Unit].
+ *
+ * Doesn't support anonymous classes/objects created by inline functions due to
+ * https://youtrack.jetbrains.com/issue/KT-17103.
+ */
+@OptIn(ExperimentalStdlibApi::class)
 internal fun Workflow<*, *, *>.hasUnitRenderingType(): Boolean {
-  // Can't use Kotlin reflection because of what seems to be a bug when the class is anonymous.
-//  val thisClass = asStatefulWorkflow()::class.java
   val workflowClass = this::class
-  return workflowClass.hasUnitRenderingType()
-//  val allSupertypes = workflowClass.allSupertypes.toList()
-//  val allTypeArgs = allSupertypes.flatMap { it.arguments }.map { "${it.variance} ${it.type}" }
-//  val typeParams = workflowClass.typeParameters
+  val workflowInterfaceType = workflowClass.allSupertypes
+      .singleOrNull {
+        (it.classifier as? KClass<*>)?.let { superclass ->
+          // TODO factor into constant
+          superclass.qualifiedName == "com.squareup.workflow.Workflow"
+        } ?: false
+      } ?: return false
+  println("All supertypes: $workflowInterfaceType")
+  println("Arguments:")
+  workflowInterfaceType.arguments.forEach {
+    println(it)
+  }
+  val renderingArgument = workflowInterfaceType.arguments.last()
+  return renderingArgument.type == typeOf<Unit>()
+////  val allTypeArgs = allSupertypes.flatMap { it.arguments }
+////      .map { "${it.variance} ${it.type}" }
+////  val typeParams = workflowClass.typeParameters
 //  workflowClass.supertypes.forEach { it.visitTypeArgs() }
-  // Multiple java methods may correspond to a single kotlin method.
-//  val renderMethods = thisClass.methods.filter { it.name == "render" }
-//  return renderMethods.any { it.returnType == Void.TYPE }
+//  // Multiple java methods may correspond to a single kotlin method.
+//  println("Member functions:")
+//  workflowClass.memberFunctions.filter { it.name == "render" }
+//      .forEach { println(it) }
+////  val renderMethods = thisClass.methods.filter { it.name == "render" }
+////  return renderMethods.any { it.returnType == Void.TYPE }
 //  return false
-}
-// TODO unit tests
-internal fun KClass<out Workflow<*, *, *>>.hasUnitRenderingType(): Boolean {
-  // Can't use Kotlin reflection because of what seems to be a bug when the class is anonymous.
-  // See https://youtrack.jetbrains.com/issue/KT-17103
-//  val thisClass = asStatefulWorkflow()::class.java
-  val workflowClass = this
-//  val allSupertypes = workflowClass.allSupertypes.toList()
-//  val allTypeArgs = allSupertypes.flatMap { it.arguments }.map { "${it.variance} ${it.type}" }
-//  val typeParams = workflowClass.typeParameters
-//  workflowClass.supertypes.forEach { it.visitTypeArgs() }
-  // Multiple java methods may correspond to a single kotlin method.
-  println("Functions:")
-  workflowClass.functions.forEach {
-    println(it)
-  }
-  println("Declared functions:")
-  workflowClass.declaredFunctions.forEach {
-    println(it)
-  }
-  println("Member functions:")
-  workflowClass.memberFunctions.forEach {
-    println(it)
-  }
-//  val renderMethods = thisClass.methods.filter { it.name == "render" }
-//  return renderMethods.any { it.returnType == Void.TYPE }
-  return false
 }
 
 /**
