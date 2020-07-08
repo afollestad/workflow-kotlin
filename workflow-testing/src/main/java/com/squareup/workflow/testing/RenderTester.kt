@@ -22,8 +22,13 @@ import com.squareup.workflow.Workflow
 import com.squareup.workflow.WorkflowAction
 import com.squareup.workflow.WorkflowIdentifier
 import com.squareup.workflow.WorkflowOutput
+import com.squareup.workflow.identifier
+import com.squareup.workflow.testing.RenderTester.SideEffectMatch.MATCH
+import com.squareup.workflow.testing.RenderTester.SideEffectMatch.NOT_MATCHED
 import com.squareup.workflow.workflowIdentifier
 import kotlin.reflect.KClass
+import kotlin.reflect.KType
+import kotlin.reflect.KTypeProjection
 
 @Deprecated(
     "Renamed to testRender",
@@ -221,6 +226,22 @@ fun <PropsT, StateT, OutputT, RenderingT>
 interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
 
   /**
+   * TODO kdoc
+   *
+   * @param description TODO
+   * @param exactMatch If true, then the test will fail if any other matching expectations are also
+   * exact matches, and the expectation will only be allowed to match a single child workflow.
+   * If false, the match will only be used if no other expectations return exclusive matches (in
+   * which case the first match will be used), and the expectation may match multiple children.
+   * @param predicate TODO
+   */
+  fun expectWorkflow(
+    description: String,
+    exactMatch: Boolean = true,
+    predicate: (RenderChildInvocation) -> ChildWorkflowMatch
+  ): RenderTester<PropsT, StateT, OutputT, RenderingT>
+
+  /**
    * Specifies that this render pass is expected to render a particular child workflow.
    *
    * Workflow identifiers are compared taking the type hierarchy into account. When a workflow is
@@ -276,7 +297,25 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
     assertProps: (props: Any?) -> Unit = {},
     output: WorkflowOutput<ChildOutputT>? = null,
     description: String = ""
-  ): RenderTester<PropsT, StateT, OutputT, RenderingT>
+  ): RenderTester<PropsT, StateT, OutputT, RenderingT> = expectWorkflow(
+      exactMatch = true,
+      description = description.ifBlank {
+        "workflow " +
+            "identifier=$identifier, " +
+            "key=$key, " +
+            "rendering=$rendering, " +
+            "output=$output"
+      }
+  ) {
+    if (it.workflow.identifier.realTypeMatchesExpectation(identifier) &&
+        it.renderKey == key
+    ) {
+      assertProps(it.props)
+      ChildWorkflowMatch.Matched(rendering, output)
+    } else {
+      ChildWorkflowMatch.NotMatched
+    }
+  }
 
   /**
    * Specifies that this render pass is expected to render a particular child workflow.
@@ -359,22 +398,23 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
   ): RenderTester<PropsT, StateT, OutputT, RenderingT>
 
   /**
-   * Specifies that this render pass is expected to run a particular side effect.
+   * Specifies that this render pass is expected to run a side effect with a key that satisfies
+   * [matcher]. This expectation is strict, and will fail if multiple side effects match.
    *
-   * @param key The key passed to
-   * [runningSideEffect][com.squareup.workflow.RenderContext.runningSideEffect] when rendering this
-   * workflow.
+   * @param description TODO
+   * @param exactMatch If true, then the test will fail if any other matching expectations are also
+   * exact matches, and the expectation will only be allowed to match a single side effect.
+   * If false, the match will only be used if no other expectations return exclusive matches (in
+   * which case the first match will be used), and the expectation may match multiple side effects.
+   * @param matcher A function that is passed the key value from
+   * [runningSideEffect][com.squareup.workflow.RenderContext.runningSideEffect] and returns a
+   * [SideEffectMatch] determining how to handle the side effect.
    */
-  fun expectSideEffect(key: String): RenderTester<PropsT, StateT, OutputT, RenderingT>
-
-  /**
-   * Causes [render] to throw an [AssertionError] if the workflow renders children or runs workers
-   * or side effects that were not explicitly expected.
-   *
-   * Note that unexpected workflows that don't have a rendering type of [Unit] will always fail,
-   * since the rendering value must be specified.
-   */
-  fun disallowUnexpectedChildren(): RenderTester<PropsT, StateT, OutputT, RenderingT>
+  fun expectSideEffect(
+    description: String,
+    exactMatch: Boolean = true,
+    matcher: (key: String) -> SideEffectMatch
+  ): RenderTester<PropsT, StateT, OutputT, RenderingT>
 
   /**
    * Execute the workflow's `render` method and run [block] to perform assertions on and send events
@@ -391,6 +431,58 @@ interface RenderTester<PropsT, StateT, OutputT, RenderingT> {
    * handle a workflow or worker output or a rendering event.
    */
   fun render(block: (rendering: RenderingT) -> Unit = {}): RenderTestResult<PropsT, StateT, OutputT>
+
+  /**
+   * Describes a call to
+   * [RenderContext.renderChild][com.squareup.workflow.RenderContext.renderChild].
+   *
+   * @param workflow The child workflow that is being rendered.
+   * @param props The props value passed to `renderChild`.
+   * @param outputType The [KType] of the workflow's output type.
+   * @param renderingType The [KType] of the workflow's rendering type.
+   * @param renderKey The string key passed to `renderChild`.
+   */
+  class RenderChildInvocation(
+    val workflow: Workflow<*, *, *>,
+    val props: Any?,
+    val outputType: KTypeProjection,
+    val renderingType: KTypeProjection,
+    val renderKey: String
+  )
+
+  sealed class ChildWorkflowMatch {
+    /**
+     * Indicates that the child workflow did not match the predicate and must match a different
+     * expectation. The test will fail if all expectations return this value.
+     */
+    object NotMatched : ChildWorkflowMatch()
+
+    /**
+     * Indicates that the workflow matches the predicate.
+     *
+     * @param childRendering The value to return as the child's rendering.
+     * @param output If non-null, [WorkflowOutput.value] will be "emitted" when this workflow is
+     * rendered. The [WorkflowAction] used to handle this output can be verified using methods on
+     * [RenderTestResult].
+     */
+    class Matched(
+      val childRendering: Any?,
+      val output: WorkflowOutput<Any?>? = null
+    ) : ChildWorkflowMatch()
+  }
+
+  /**
+   * Result of an [expectSideEffect] matcher function.
+   */
+  enum class SideEffectMatch {
+    /** Indicates that the side effect does not match the expectation. */
+    NOT_MATCHED,
+
+    /**
+     * Indicates that the side effect matches the expectation, but may also match other expectations.
+     */
+    MATCH
+  }
 }
 
 /**
@@ -423,3 +515,19 @@ fun <PropsT, StateT, OutputT, RenderingT>
     output = output,
     description = description.ifBlank { doesSameWorkAs.toString() }
 )
+
+/**
+ * Specifies that this render pass is expected to run a particular side effect.
+ *
+ * @param key The key passed to
+ * [runningSideEffect][com.squareup.workflow.RenderContext.runningSideEffect] when rendering this
+ * workflow.
+ */
+/* ktlint-disable parameter-list-wrapping */
+fun <PropsT, StateT, OutputT, RenderingT>
+    RenderTester<PropsT, StateT, OutputT, RenderingT>.expectSideEffect(key: String):
+    RenderTester<PropsT, StateT, OutputT, RenderingT> =
+/* ktlint-enable parameter-list-wrapping */
+  expectSideEffect("side effect with key \"$key\"") {
+    if (it == key) MATCH else NOT_MATCHED
+  }

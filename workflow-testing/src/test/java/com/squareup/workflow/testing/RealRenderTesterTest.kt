@@ -19,7 +19,6 @@ import com.squareup.workflow.ExperimentalWorkflowApi
 import com.squareup.workflow.ImpostorWorkflow
 import com.squareup.workflow.RenderContext
 import com.squareup.workflow.Sink
-import com.squareup.workflow.Snapshot
 import com.squareup.workflow.StatefulWorkflow
 import com.squareup.workflow.StatelessWorkflow
 import com.squareup.workflow.Worker
@@ -55,50 +54,48 @@ class RealRenderTesterTest {
   private interface OutputWhateverChild : Workflow<Unit, Unit, Unit>
   private interface OutputNothingChild : Workflow<Unit, Nothing, Unit>
 
-  @Test fun `expectWorkflow with output throws when already expecting workflow output`() {
-    // Don't need an implementation, the test should fail before even calling render.
-    val workflow = Workflow.stateless<Unit, Unit, Unit> {}
+  @Test fun `render throws when multiple workflows expect output`() {
+    val child1 = Workflow.stateless<Unit, Unit, Unit> {}
+    val child2 = Workflow.stateless<Unit, Unit, Unit> {}
+    val workflow = Workflow.stateless<Unit, Unit, Unit> {
+      renderChild(child1) { noAction() }
+      renderChild(child2) { noAction() }
+    }
     val tester = workflow.testRender(Unit)
-        .expectWorkflow(
-            OutputWhateverChild::class, rendering = Unit,
-            output = WorkflowOutput(Unit)
-        )
+        .expectWorkflow(child1.identifier, rendering = Unit, output = WorkflowOutput(Unit))
+        .expectWorkflow(child2.identifier, rendering = Unit, output = WorkflowOutput(Unit))
 
     val failure = assertFailsWith<IllegalStateException> {
-      tester.expectWorkflow(
-          workflow::class, rendering = Unit, output = WorkflowOutput(Unit)
-      )
+      tester.render()
     }
 
-    val failureMessage = failure.message!!
-    assertTrue(failureMessage.startsWith("Expected only one child to emit an output:"))
     assertEquals(
-        3, failureMessage.lines().size,
-        "Expected error message to have 3 lines, but was ${failureMessage.lines().size}"
+        "Expected only one output to be expected: child workflow ${child2.identifier} " +
+            "expected to emit kotlin.Unit but WorkflowAction.noAction() was already processed.",
+        failure.message
     )
-    assertEquals(2, failureMessage.lines().count { "ExpectedWorkflow" in it })
   }
 
-  @Test fun `expectWorkflow with output throws when already expecting worker output`() {
-    // Don't need an implementation, the test should fail before even calling render.
-    val workflow = Workflow.stateless<Unit, Unit, Unit> {}
+  @Test fun `render throws when workflow then worker both expect output`() {
+    val child = Workflow.stateless<Unit, Unit, Unit> {}
+    val worker = Worker.finished<Unit>()
+    val workflow = Workflow.stateless<Unit, Unit, Unit> {
+      renderChild(child) { noAction() }
+      runningWorker(worker) { noAction() }
+    }
     val tester = workflow.testRender(Unit)
+        .expectWorkflow(child.identifier, rendering = Unit, output = WorkflowOutput(Unit))
         .expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
 
     val failure = assertFailsWith<IllegalStateException> {
-      tester.expectWorkflow(
-          workflow::class, rendering = Unit, output = WorkflowOutput(Unit)
-      )
+      tester.render()
     }
 
-    val failureMessage = failure.message!!
-    assertTrue(failureMessage.startsWith("Expected only one child to emit an output:"))
     assertEquals(
-        3, failureMessage.lines().size,
-        "Expected error message to have 3 lines, but was ${failureMessage.lines().size}"
+        "Expected only one output to be expected: worker $worker expected to emit " +
+            "kotlin.Unit but WorkflowAction.noAction() was already processed.",
+        failure.message
     )
-    assertEquals(1, failureMessage.lines().count { "ExpectedWorker" in it })
-    assertEquals(1, failureMessage.lines().count { "ExpectedWorkflow" in it })
   }
 
   @Test fun `expectWorkflow without output doesn't throw when already expecting output`() {
@@ -130,30 +127,30 @@ class RealRenderTesterTest {
         3, failureMessage.lines().size,
         "Expected error message to have 3 lines, but was ${failureMessage.lines().size}"
     )
-    assertEquals(2, failureMessage.lines().count { "ExpectedWorker" in it })
+    assertEquals(2, failureMessage.lines()
+        .count { "ExpectedWorker" in it })
   }
 
-  @Test fun `expectWorker with output throws when already expecting workflow output`() {
-    // Don't need an implementation, the test should fail before even calling render.
-    val workflow = Workflow.stateless<Unit, Unit, Unit> {}
+  @Test fun `render throws when worker then workflow both expect output`() {
+    val child = Workflow.stateless<Unit, Unit, Unit> {}
+    val worker = Worker.finished<Unit>()
+    val workflow = Workflow.stateless<Unit, Unit, Unit> {
+      runningWorker(worker) { noAction() }
+      renderChild(child) { noAction() }
+    }
     val tester = workflow.testRender(Unit)
-        .expectWorkflow(
-            workflow::class, rendering = Unit,
-            output = WorkflowOutput(Unit)
-        )
+        .expectWorkflow(child.identifier, rendering = Unit, output = WorkflowOutput(Unit))
+        .expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
 
     val failure = assertFailsWith<IllegalStateException> {
-      tester.expectWorker(matchesWhen = { true }, output = WorkflowOutput(Unit))
+      tester.render()
     }
 
-    val failureMessage = failure.message!!
-    assertTrue(failureMessage.startsWith("Expected only one child to emit an output:"))
     assertEquals(
-        3, failureMessage.lines().size,
-        "Expected error message to have 3 lines, but was ${failureMessage.lines().size}"
+        "Expected only one output to be expected: child workflow ${child.identifier} " +
+            "expected to emit kotlin.Unit but WorkflowAction.noAction() was already processed.",
+        failure.message
     )
-    assertEquals(1, failureMessage.lines().count { "ExpectedWorker" in it })
-    assertEquals(1, failureMessage.lines().count { "ExpectedWorkflow" in it })
   }
 
   @Test fun `expectWorker without output doesn't throw when already expecting output`() {
@@ -203,19 +200,6 @@ class RealRenderTesterTest {
     assertTrue(
         error.message!!.startsWith("Expected 1 more workflows, workers, or side effects to be ran:")
     )
-  }
-
-  @Test fun `expectSideEffect throws when already expecting side effect`() {
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      runningSideEffect("the key") {}
-    }
-    val tester = workflow.testRender(Unit)
-        .expectSideEffect("the key")
-
-    val error = assertFailsWith<AssertionError> {
-      tester.expectSideEffect("the key")
-    }
-    assertEquals("Already expecting side effect with key \"the key\".", error.message)
   }
 
   @Test fun `sideEffect matches on key`() {
@@ -326,40 +310,40 @@ class RealRenderTesterTest {
     )
   }
 
-  @Test
-  fun `renderChild rendering Unit doesn't throw when none expected and unexpected children are allowed`() {
-    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
-      override fun render(
-        props: Unit,
-        context: RenderContext<Unit, Nothing, Nothing>
-      ) {
-        // Noop
-      }
-    }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      renderChild(child)
-    }
-    workflow.testRender(Unit)
-        .render()
-  }
+//  @Test
+//  fun `renderChild rendering Unit doesn't throw when none expected and unexpected children are allowed`() {
+//    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+//      override fun render(
+//        props: Unit,
+//        context: RenderContext<Unit, Nothing, Nothing>
+//      ) {
+//        // Noop
+//      }
+//    }
+//    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+//      renderChild(child)
+//    }
+//    workflow.testRender(Unit)
+//        .render()
+//  }
 
-  @Test
-  fun `renderChild rendering Unit throws when none expected and unexpected children are not allowed`() {
-    val child = Workflow.stateless<Unit, Nothing, Unit> { }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      renderChild(child)
-    }
-    val tester = workflow.testRender(Unit)
-        .disallowUnexpectedChildren()
-
-    val error = assertFailsWith<AssertionError> {
-      tester.render()
-    }
-    assertEquals(
-        "Tried to render unexpected child workflow ${child.identifier}",
-        error.message
-    )
-  }
+//  @Test
+//  fun `renderChild rendering Unit throws when none expected and unexpected children are not allowed`() {
+//    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+//    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+//      renderChild(child)
+//    }
+//    val tester = workflow.testRender(Unit)
+//        .disallowUnexpectedChildren()
+//
+//    val error = assertFailsWith<AssertionError> {
+//      tester.render()
+//    }
+//    assertEquals(
+//        "Tried to render unexpected child workflow ${child.identifier}",
+//        error.message
+//    )
+//  }
 
   @Test
   fun `renderChild rendering non-Unit throws when none expected and unexpected children are allowed`() {
@@ -378,42 +362,42 @@ class RealRenderTesterTest {
     )
   }
 
-  @Test
-  fun `renderChild rendering Unit doesn't throw when no expectations match and unexpected children are allowed`() {
-    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
-      override fun render(
-        props: Unit,
-        context: RenderContext<Unit, Nothing, Nothing>
-      ) {
-        // Noop
-      }
-    }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      renderChild(child)
-    }
-    workflow.testRender(Unit)
-        .expectWorkflow(OutputNothingChild::class, rendering = Unit)
-        .render()
-  }
+//  @Test
+//  fun `renderChild rendering Unit doesn't throw when no expectations match and unexpected children are allowed`() {
+//    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+//      override fun render(
+//        props: Unit,
+//        context: RenderContext<Unit, Nothing, Nothing>
+//      ) {
+//        // Noop
+//      }
+//    }
+//    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+//      renderChild(child)
+//    }
+//    workflow.testRender(Unit)
+//        .expectWorkflow(OutputNothingChild::class, rendering = Unit)
+//        .render()
+//  }
 
-  @Test
-  fun `renderChild rendering Unit throws when no expectations match and unexpected children are not allowed`() {
-    val child = Workflow.stateless<Unit, Nothing, Unit> { }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      renderChild(child)
-    }
-    val tester = workflow.testRender(Unit)
-        .expectWorkflow(OutputNothingChild::class, rendering = Unit)
-        .disallowUnexpectedChildren()
-
-    val error = assertFailsWith<AssertionError> {
-      tester.render()
-    }
-    assertEquals(
-        "Tried to render unexpected child workflow ${child.identifier}",
-        error.message
-    )
-  }
+//  @Test
+//  fun `renderChild rendering Unit throws when no expectations match and unexpected children are not allowed`() {
+//    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+//    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+//      renderChild(child)
+//    }
+//    val tester = workflow.testRender(Unit)
+//        .expectWorkflow(OutputNothingChild::class, rendering = Unit)
+//        .disallowUnexpectedChildren()
+//
+//    val error = assertFailsWith<AssertionError> {
+//      tester.render()
+//    }
+//    assertEquals(
+//        "Tried to render unexpected child workflow ${child.identifier}",
+//        error.message
+//    )
+//  }
 
   @Test
   fun `renderChild rendering non-Unit throws when no expectations match and unexpected children are allowed`() {
@@ -466,42 +450,42 @@ class RealRenderTesterTest {
     )
   }
 
-  @Test
-  fun `renderChild with key throws when key doesn't match and unexpected children are not allowed`() {
-    val child = Workflow.stateless<Unit, Nothing, Unit> { }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      renderChild(child, key = "key")
-    }
-    val tester = workflow.testRender(Unit)
-        .expectWorkflow(OutputNothingChild::class, rendering = Unit, key = "wrong key")
-        .disallowUnexpectedChildren()
+//  @Test
+//  fun `renderChild with key throws when key doesn't match and unexpected children are not allowed`() {
+//    val child = Workflow.stateless<Unit, Nothing, Unit> { }
+//    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+//      renderChild(child, key = "key")
+//    }
+//    val tester = workflow.testRender(Unit)
+//        .expectWorkflow(OutputNothingChild::class, rendering = Unit, key = "wrong key")
+//        .disallowUnexpectedChildren()
+//
+//    val error = assertFailsWith<AssertionError> {
+//      tester.render()
+//    }
+//    assertEquals(
+//        "Tried to render unexpected child workflow ${child.identifier} with key \"key\"",
+//        error.message
+//    )
+//  }
 
-    val error = assertFailsWith<AssertionError> {
-      tester.render()
-    }
-    assertEquals(
-        "Tried to render unexpected child workflow ${child.identifier} with key \"key\"",
-        error.message
-    )
-  }
-
-  @Test
-  fun `renderChild with key doesn't throw when key doesn't match and unexpected children are allowed`() {
-    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
-      override fun render(
-        props: Unit,
-        context: RenderContext<Unit, Nothing, Nothing>
-      ) {
-        // Noop
-      }
-    }
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
-      renderChild(child, key = "key")
-    }
-    workflow.testRender(Unit)
-        .expectWorkflow(OutputNothingChild::class, rendering = Unit, key = "wrong key")
-        .render()
-  }
+//  @Test
+//  fun `renderChild with key doesn't throw when key doesn't match and unexpected children are allowed`() {
+//    val child = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+//      override fun render(
+//        props: Unit,
+//        context: RenderContext<Unit, Nothing, Nothing>
+//      ) {
+//        // Noop
+//      }
+//    }
+//    val workflow = Workflow.stateless<Unit, Nothing, Unit> {
+//      renderChild(child, key = "key")
+//    }
+//    workflow.testRender(Unit)
+//        .expectWorkflow(OutputNothingChild::class, rendering = Unit, key = "wrong key")
+//        .render()
+//  }
 
   @Test fun `renderChild throws when multiple expectations match`() {
     class Child : OutputNothingChild, StatelessWorkflow<Unit, Nothing, Unit>() {
@@ -948,108 +932,108 @@ class RealRenderTesterTest {
 
     assertEquals(2, renderCount)
   }
-
-  @Test fun `hasUnitRenderingType() returns false for Workflow-stateless (KT-17103)`() {
-    val workflow = Workflow.stateless<Unit, Nothing, Unit> {}
-    // This should return true once https://youtrack.jetbrains.com/issue/KT-17103 is fixed.
-    assertFalse(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns false for Workflow-stateless`() {
-    val workflow = Workflow.stateless<Unit, Nothing, Int> { throw NotImplementedError() }
-    assertFalse(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns false for Workflow-stateful (KT-17103)`() {
-    val workflow = Workflow.stateful<Unit, Nothing, Unit>(
-        initialState = Unit,
-        render = {}
-    )
-    // This should return true once https://youtrack.jetbrains.com/issue/KT-17103 is fixed.
-    assertFalse(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns false for Workflow-stateful`() {
-    val workflow = Workflow.stateful<Unit, Nothing, Int>(
-        initialState = Unit,
-        render = { throw NotImplementedError() }
-    )
-    assertFalse(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns true for anonymous Workflow`() {
-    val workflow = object : Workflow<Unit, Nothing, Unit> {
-      override fun asStatefulWorkflow(): StatefulWorkflow<Unit, *, Nothing, Unit> =
-        throw NotImplementedError()
-    }
-    assertTrue(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns false for anonymous Workflow`() {
-    val workflow = object : Workflow<Unit, Nothing, Int> {
-      override fun asStatefulWorkflow(): StatefulWorkflow<Unit, *, Nothing, Int> =
-        throw NotImplementedError()
-    }
-    assertFalse(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns true for anonymous StatefulWorkflow`() {
-    val workflow = object : StatefulWorkflow<Unit, Unit, Nothing, Unit>() {
-      override fun initialState(
-        props: Unit,
-        snapshot: Snapshot?
-      ): Unit = throw NotImplementedError()
-
-      override fun render(
-        props: Unit,
-        state: Unit,
-        context: RenderContext<Unit, Unit, Nothing>
-      ): Unit = throw NotImplementedError()
-
-      override fun snapshotState(state: Unit): Snapshot? = throw NotImplementedError()
-
-    }
-    assertTrue(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns false for anonymous StatefulWorkflow`() {
-    val workflow = object : StatefulWorkflow<Unit, Unit, Nothing, Int>() {
-      override fun initialState(
-        props: Unit,
-        snapshot: Snapshot?
-      ): Unit = throw NotImplementedError()
-
-      override fun render(
-        props: Unit,
-        state: Unit,
-        context: RenderContext<Unit, Unit, Nothing>
-      ) = throw NotImplementedError()
-
-      override fun snapshotState(state: Unit): Snapshot? = throw NotImplementedError()
-
-    }
-    assertFalse(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns true for anonymous StatelessWorkflow`() {
-    val workflow = object : StatelessWorkflow<Unit, Nothing, Unit>() {
-      override fun render(
-        props: Unit,
-        context: RenderContext<Unit, Nothing, Nothing>
-      ): Unit = throw NotImplementedError()
-    }
-    assertTrue(workflow.hasUnitRenderingType())
-  }
-
-  @Test fun `hasUnitRenderingType() returns false for anonymous StatelessWorkflow`() {
-    val workflow = object : StatelessWorkflow<Unit, Nothing, Int>() {
-      override fun render(
-        props: Unit,
-        context: RenderContext<Unit, Nothing, Nothing>
-      ) = throw NotImplementedError()
-    }
-    assertFalse(workflow.hasUnitRenderingType())
-  }
+//
+//  @Test fun `hasUnitRenderingType() returns false for Workflow-stateless (KT-17103)`() {
+//    val workflow = Workflow.stateless<Unit, Nothing, Unit> {}
+//    // This should return true once https://youtrack.jetbrains.com/issue/KT-17103 is fixed.
+//    assertFalse(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns false for Workflow-stateless`() {
+//    val workflow = Workflow.stateless<Unit, Nothing, Int> { throw NotImplementedError() }
+//    assertFalse(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns false for Workflow-stateful (KT-17103)`() {
+//    val workflow = Workflow.stateful<Unit, Nothing, Unit>(
+//        initialState = Unit,
+//        render = {}
+//    )
+//    // This should return true once https://youtrack.jetbrains.com/issue/KT-17103 is fixed.
+//    assertFalse(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns false for Workflow-stateful`() {
+//    val workflow = Workflow.stateful<Unit, Nothing, Int>(
+//        initialState = Unit,
+//        render = { throw NotImplementedError() }
+//    )
+//    assertFalse(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns true for anonymous Workflow`() {
+//    val workflow = object : Workflow<Unit, Nothing, Unit> {
+//      override fun asStatefulWorkflow(): StatefulWorkflow<Unit, *, Nothing, Unit> =
+//        throw NotImplementedError()
+//    }
+//    assertTrue(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns false for anonymous Workflow`() {
+//    val workflow = object : Workflow<Unit, Nothing, Int> {
+//      override fun asStatefulWorkflow(): StatefulWorkflow<Unit, *, Nothing, Int> =
+//        throw NotImplementedError()
+//    }
+//    assertFalse(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns true for anonymous StatefulWorkflow`() {
+//    val workflow = object : StatefulWorkflow<Unit, Unit, Nothing, Unit>() {
+//      override fun initialState(
+//        props: Unit,
+//        snapshot: Snapshot?
+//      ): Unit = throw NotImplementedError()
+//
+//      override fun render(
+//        props: Unit,
+//        state: Unit,
+//        context: RenderContext<Unit, Unit, Nothing>
+//      ): Unit = throw NotImplementedError()
+//
+//      override fun snapshotState(state: Unit): Snapshot? = throw NotImplementedError()
+//
+//    }
+//    assertTrue(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns false for anonymous StatefulWorkflow`() {
+//    val workflow = object : StatefulWorkflow<Unit, Unit, Nothing, Int>() {
+//      override fun initialState(
+//        props: Unit,
+//        snapshot: Snapshot?
+//      ): Unit = throw NotImplementedError()
+//
+//      override fun render(
+//        props: Unit,
+//        state: Unit,
+//        context: RenderContext<Unit, Unit, Nothing>
+//      ) = throw NotImplementedError()
+//
+//      override fun snapshotState(state: Unit): Snapshot? = throw NotImplementedError()
+//
+//    }
+//    assertFalse(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns true for anonymous StatelessWorkflow`() {
+//    val workflow = object : StatelessWorkflow<Unit, Nothing, Unit>() {
+//      override fun render(
+//        props: Unit,
+//        context: RenderContext<Unit, Nothing, Nothing>
+//      ): Unit = throw NotImplementedError()
+//    }
+//    assertTrue(workflow.hasUnitRenderingType())
+//  }
+//
+//  @Test fun `hasUnitRenderingType() returns false for anonymous StatelessWorkflow`() {
+//    val workflow = object : StatelessWorkflow<Unit, Nothing, Int>() {
+//      override fun render(
+//        props: Unit,
+//        context: RenderContext<Unit, Nothing, Nothing>
+//      ) = throw NotImplementedError()
+//    }
+//    assertFalse(workflow.hasUnitRenderingType())
+//  }
 
   @Test fun `realTypeMatchesExpectation() matches exact type`() {
     val expected = unsnapshottableIdentifier(typeOf<InvariantGenericType<String>>())
